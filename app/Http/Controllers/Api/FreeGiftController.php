@@ -33,6 +33,7 @@ class FreeGiftController extends Controller
             'balloons'   => $this->storeBalloons($request),
             'letter'     => $this->storeLetter($request),
             'chocolates' => $this->storeChocolates($request),
+            'moment' => $this->storeMoment($request),
             default      => response()->json([
                 'message' => 'Invalid gift type',
             ], 422),
@@ -268,6 +269,43 @@ class FreeGiftController extends Controller
                 config('app.frontend_url') . '/free-gifts/chocolates/' . $gift->share_token,
         ], 201);
     }
+
+    /**
+ * STORE: MOMENT / SURPRISE
+ */
+private function storeMoment(Request $request)
+{
+    $validated = $request->validate([
+        'gift_type' => 'required|string|max:50',
+        'recipient_name' => 'required|string|max:100',
+        'sender_name' => 'required|string|max:100',
+        'gift_data.title' => 'required|string|max:150',
+        'gift_data.message' => 'required|string|max:2000',
+        'gift_data.date' => 'required|date',
+        'gift_data.time' => 'nullable|string|max:10',
+    ]);
+
+    $gift = FreeGift::create([
+        'sender_id' => Auth::id(), // nullable if guest
+        'gift_type' => 'moment',
+        'recipient_name' => $validated['recipient_name'],
+        'sender_name' => $validated['sender_name'],
+        'gift_data' => [
+            'title' => $validated['gift_data']['title'],
+            'message' => $validated['gift_data']['message'],
+            'date' => $validated['gift_data']['date'],
+            'time' => $validated['gift_data']['time'] ?? null,
+        ],
+        'share_token' => $this->generateUniqueToken(),
+    ]);
+
+    return response()->json([
+        'token' => $gift->share_token,
+        'share_url' =>
+            config('app.frontend_url') . '/free-gifts/surprise/' . $gift->share_token,
+        'gift' => $gift,
+    ], 201);
+}
 
     /**
      * VIEW (COMMON)

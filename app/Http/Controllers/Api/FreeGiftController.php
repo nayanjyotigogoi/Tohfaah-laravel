@@ -18,10 +18,10 @@ class FreeGiftController extends Controller
     public function store(Request $request)
     {
         \Log::info('AUTH CHECK', [
-    'auth_id' => Auth::id(),
-    'user' => Auth::user(),
-    'session' => session()->all(),
-]);
+        'auth_id' => Auth::id(),
+        'user' => Auth::user(),
+        'session' => session()->all(),
+        ]);
 
         $giftType = $request->input('gift_type');
 
@@ -79,7 +79,9 @@ class FreeGiftController extends Controller
             'token' => $gift->share_token,
             'share_url' =>
                 config('app.frontend_url') . '/free-gifts/polaroid/' . $gift->share_token,
+            'image_path' => $gift->gift_data['image_path'], // ✅ THIS WAS MISSING
         ], 201);
+
     }
 
     /**
@@ -310,23 +312,24 @@ private function storeMoment(Request $request)
     /**
      * VIEW (COMMON)
      */
-    public function show(string $token)
-    {
-        $gift = FreeGift::where('share_token', $token)->first();
+public function show(string $token)
+{
+    $gift = FreeGift::where('share_token', $token)->first();
 
-        if (!$gift) {
-            return response()->json(['message' => 'Gift not found'], 404);
-        }
-
-        $gift->increment('view_count');
-
-        return response()->json([
-            'gift_type' => $gift->gift_type,
-            'recipient_name' => $gift->recipient_name,
-            'sender_name' => $gift->sender_name,
-            'gift_data' => $gift->gift_data,
-        ]);
+    if (!$gift) {
+        return response()->json(['message' => 'Gift not found'], 404);
     }
+
+    $gift->increment('view_count');
+
+    return response()->json([
+        'gift_type' => $gift->gift_type,
+        'recipient_name' => $gift->recipient_name,
+        'sender_name' => $gift->sender_name,
+        'gift_data' => $gift->gift_data ?? [],
+    ]);
+}
+
 
     private function generateUniqueToken(): string
     {

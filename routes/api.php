@@ -71,16 +71,40 @@ Route::middleware('auth:sanctum')->get(
 | PREMIUM GIFTS (AUTH REQUIRED)
 |--------------------------------------------------------------------------
 */
+Route::get('/premium-gifts/{id}/preview', [PremiumGiftController::class, 'preview'])
+    ->middleware('auth:sanctum');
+Route::post(
+    '/premium-gifts/{token}/verify-secret',
+    [PremiumGiftController::class, 'verifySecret']
+);
+/*
+|--------------------------------------------------------------------------
+| PREMIUM GIFTS (PUBLIC VIEW)
+|--------------------------------------------------------------------------
+*/
+Route::get(
+    '/premium-gifts/view/{token}',
+    [PremiumGiftController::class, 'view']
+);
 Route::prefix('premium-gifts')
     ->middleware('auth:sanctum')
     ->group(function () {
 
+    
         Route::post('/', [PremiumGiftController::class, 'store']);
+        Route::get('/{id}', [PremiumGiftController::class, 'show']);
         Route::put('/{id}', [PremiumGiftController::class, 'update']);
+
+        Route::post('/{id}/apply-coupon', [PremiumGiftController::class, 'applyCoupon']);
+        Route::post('/{id}/publish', [PremiumGiftController::class, 'publish']); // future payment success
+
+
         Route::post('/{id}/publish', [PremiumGiftController::class, 'publish']);
         Route::post('/{id}/images', [PremiumGiftController::class, 'uploadImage']);
 
-        Route::get('/view/{token}', [PremiumGiftController::class, 'view']);
-        Route::post('/{token}/verify-secret', [PremiumGiftController::class, 'verifySecret']);
+        // Route::get('/view/{token}', [PremiumGiftController::class, 'view']);
+        // Route::post('/{token}/verify-secret', [PremiumGiftController::class, 'verifySecret']);
+        
+
         Route::post('/{token}/proposal/accept', [PremiumGiftController::class, 'acceptProposal']);
     });

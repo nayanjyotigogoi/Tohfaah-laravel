@@ -53,7 +53,7 @@ class UserDashboardController extends Controller
 
         $stats = [
             'free_gifts' => $freeGifts->count(),
-            'premium_live' => $premiumGifts->where('status', 'live')->count(),
+            'premium_live' => $premiumGifts->where('status', 'published')->count(),
             'premium_drafts' => $premiumGifts->where('status', 'draft')->count(),
         ];
 
@@ -61,24 +61,28 @@ class UserDashboardController extends Controller
 
         /* ------------------ MAP RESPONSE ------------------ */
 
+        $frontend = rtrim(config('app.frontend_url'), '/');
+
         $freeMapped = $freeGifts->map(fn ($g) => [
             'id' => $g->id,
             'type' => ucfirst($g->gift_type),
             'recipient' => $g->recipient_name,
             'date' => Carbon::parse($g->created_at)->format('M d, Y'),
-            'link' => "tohfaah.com/free-gifts/{$g->gift_type}/{$g->share_token}",
+            'link' => "{$frontend}/free-gifts/{$g->gift_type}/{$g->share_token}",
         ]);
 
+
         $premiumMapped = $premiumGifts->map(fn ($g) => [
-            'id' => $g->id,
-            'type' => 'Premium Experience',
-            'recipient' => $g->recipient_name,
-            'status' => $g->status,
-            'date' => Carbon::parse($g->updated_at)->format('M d, Y'),
-            'link' => $g->status === 'live'
-                ? "tohfaah.com/gift/{$g->share_token}"
-                : null,
-        ]);
+    'id' => $g->id,
+    'type' => 'Premium Experience',
+    'recipient' => $g->recipient_name,
+    'status' => $g->status,
+    'date' => Carbon::parse($g->updated_at)->format('M d, Y'),
+    'link' => $g->status === 'published'
+        ? "{$frontend}/gift/valentine/{$g->id}?token={$g->share_token}"
+        : null,
+]);
+
 
         $recent = collect()
             ->merge($freeMapped->map(fn ($g) => $g + ['category' => 'free']))
@@ -94,7 +98,7 @@ class UserDashboardController extends Controller
         return response()->json([
             'stats' => $stats,
             'free' => $freeMapped,
-            'paid' => $premiumMapped->where('status', 'live')->values(),
+            'paid' => $premiumMapped->where('status', 'published')->values(),
             'drafts' => $premiumMapped->where('status', 'draft')->values(),
             'recent_activity' => $recent,
         ]);

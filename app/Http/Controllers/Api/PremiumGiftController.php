@@ -5,20 +5,82 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Models\Gift;
 use App\Models\GiftPhoto;
+use App\Models\Coupon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\Facades\File;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
+use Illuminate\Support\Facades\DB;
 
 class PremiumGiftController extends Controller
 {
+
+    public function show($id)
+    {
+        Log::info('[GIFT:SHOW] Fetching draft', [
+            'gift_id' => $id,
+            'user_id' => Auth::id(),
+        ]);
+
+        $gift = Gift::where('id', $id)
+            ->where('sender_id', Auth::id())
+            ->with(['photos', 'memories']) // ✅ IMPORTANT
+            ->firstOrFail();
+
+        Log::info('[GIFT:SHOW] Draft found', [
+            'has_love_letter' => $gift->has_love_letter,
+            'has_map' => $gift->has_map,
+            'has_proposal' => $gift->has_proposal,
+            'proposed_datetime' => $gift->proposed_datetime,
+            'photos_count' => $gift->photos->count(),
+        ]);
+
+        return response()->json([
+            'id' => $gift->id,
+
+            'recipient_name' => $gift->recipient_name,
+            'sender_name' => $gift->sender_name,
+
+            'secret_question' => $gift->secret_question,
+            'message_body' => $gift->message_body,
+
+            'love_letter_content' => $gift->love_letter_content,
+
+            // ✅ FIXED
+            'photos' => $gift->photos
+                ->sortBy('display_order')
+                ->map(fn ($p) => asset($p->image_url))
+                ->values(),
+
+            // OPTIONAL (but correct)
+            'memories' => $gift->memories
+                ->sortBy('display_order')
+                ->pluck('caption')
+                ->values(),
+
+            'sender_location' => $gift->sender_location,
+            'recipient_location' => $gift->recipient_location,
+
+            'proposal_question' => $gift->proposal_question,
+            'proposed_datetime' => optional($gift->proposed_datetime)->toISOString(),
+        ]);
+    }
+
+
+
     /* =========================================================
      |  1. CREATE DRAFT
      ========================================================= */
     public function store(Request $request)
     {
+
+        Log::info('[GIFT:STORE] Creating draft', [
+            'user_id' => Auth::id(),
+            'payload' => $request->all(),
+        ]);
         $validated = $request->validate([
             'template_type' => 'required|string',
 
@@ -41,6 +103,9 @@ class PremiumGiftController extends Controller
             'sender_nickname' => $validated['sender_nickname'] ?? null,
         ]);
 
+        Log::info('[GIFT:STORE] Draft created', ['gift_id' => $gift->id]);
+
+
         return response()->json([
             'id' => $gift->id,
             'status' => $gift->status,
@@ -52,12 +117,22 @@ class PremiumGiftController extends Controller
      ========================================================= */
     public function update(Request $request, string $id)
     {
+        Log::info('[GIFT:UPDATE] Incoming update', [
+            'gift_id' => $id,
+            'user_id' => Auth::id(),
+            'payload' => $request->all(),
+        ]);
+
         $gift = Gift::where('id', $id)
             ->where('sender_id', Auth::id())
             ->where('status', 'draft')
             ->first();
 
         if (! $gift) {
+            Log::warning('[GIFT:UPDATE] Draft not found or locked', [
+                'gift_id' => $id,
+            ]);
+
             return response()->json([
                 'message' => 'Draft not found or not editable',
             ], 404);
@@ -107,6 +182,33 @@ class PremiumGiftController extends Controller
         }
 
         $gift->update($data);
+        // ✅ SAVE CONVERSATION MEMORIES
+        if ($request->has('conversation_messages')) {
+
+            $gift->memories()->delete();
+
+            foreach ($request->conversation_messages as $index => $message) {
+                if (!trim($message)) continue;
+
+                $gift->memories()->create([
+                    'caption' => $message,
+                    'image_url' => null, // ✅ IMPORTANT
+                    'display_order' => $index,
+                ]);
+            }
+
+            $gift->update([
+                'has_memories' => true,
+            ]);
+        }
+
+
+
+        Log::info('[GIFT:UPDATE] Draft updated', [
+            'gift_id' => $gift->id,
+            'has_proposal' => $gift->has_proposal,
+            'proposed_datetime' => $gift->proposed_datetime,
+        ]);
 
         return response()->json([
             'message' => 'Draft updated successfully',
@@ -119,12 +221,22 @@ class PremiumGiftController extends Controller
      ========================================================= */
     public function publish(string $id)
     {
+        Log::info('[GIFT:PUBLISH] Attempt', [
+            'gift_id' => $id,
+            'user_id' => Auth::id(),
+        ]);
+
+
         $gift = Gift::where('id', $id)
             ->where('sender_id', Auth::id())
             ->where('status', 'draft')
             ->first();
 
         if (! $gift) {
+            Log::warning('[GIFT:PUBLISH] Not found or already published', [
+                'gift_id' => $id,
+            ]);
+
             return response()->json([
                 'message' => 'Gift not found or already published',
             ], 404);
@@ -135,10 +247,20 @@ class PremiumGiftController extends Controller
             'share_token' => $this->generateUniqueToken(),
         ]);
 
-        return response()->json([
+        Log::info('[GIFT:PUBLISH] Published', [
+            'gift_id' => $gift->id,
             'share_token' => $gift->share_token,
-            'share_url' => config('app.frontend_url') . '/gift/' . $gift->share_token,
         ]);
+
+        return response()->json([
+            'message' => 'Gift unlocked successfully',
+            'share_token' => $gift->share_token,
+            'share_url' => config('app.frontend_url')
+                . '/gift/valentine/' . $gift->id
+                . '?token=' . $gift->share_token,
+        ]);
+
+
     }
 
     /* =========================================================
@@ -146,15 +268,18 @@ class PremiumGiftController extends Controller
      ========================================================= */
     public function view(Request $request, string $token)
     {
+        Log::info('[GIFT:VIEW] Public view', [
+            'token' => $token,
+            'unlock_token' => $request->unlock_token,
+        ]);
         $gift = Gift::where('share_token', $token)
             ->where('status', 'published')
             ->with(['memories', 'photos'])
             ->first();
 
         if (! $gift) {
-            return response()->json([
-                'message' => 'Gift not found',
-            ], 404);
+            Log::warning('[GIFT:VIEW] Gift not found', ['token' => $token]);
+            return response()->json(['message' => 'Gift not found'], 404);
         }
 
         $isUnlocked = false;
@@ -166,47 +291,104 @@ class PremiumGiftController extends Controller
 
         $gift->increment('view_count');
 
+        Log::info('[GIFT:VIEW] View state', [
+            'gift_id' => $gift->id,
+            'locked' => $gift->has_secret_question && ! $isUnlocked,
+            'has_proposal' => $gift->has_proposal,
+        ]);
+
+
+return response()->json([
+    'locked' => $gift->has_secret_question && ! $isUnlocked,
+
+    'recipient_name' => $gift->recipient_name,
+    'sender_name' => $gift->sender_name,
+
+    'secret_question' => $gift->has_secret_question && ! $isUnlocked
+        ? $gift->secret_question
+        : null,
+
+    'message_body' => $isUnlocked ? $gift->message_body : null,
+
+    'love_letter' => $isUnlocked && $gift->has_love_letter ? [
+        'content' => $gift->love_letter_content,
+    ] : null,
+
+    'memories' => $isUnlocked
+        ? $gift->memories->pluck('caption')->values()
+        : [],
+
+    'photos' => $isUnlocked
+        ? $gift->photos->map(fn ($p) => asset($p->image_url))->values()
+        : [],
+
+    'map' => $isUnlocked && $gift->has_map ? [
+        'sender_location' => $gift->sender_location,
+        'recipient_location' => $gift->recipient_location,
+    ] : null,
+
+    'proposal' => $isUnlocked && $gift->has_proposal ? [
+        'question' => $gift->proposal_question,
+        'response' => $gift->proposal_response,
+    ] : null,
+]);
+
+    }
+
+    /* =========================================================
+     |  4. VIEW PREMIUM GIFT (PUBLIC, SAFE)
+     ========================================================= */
+    public function preview(string $id)
+    {
+        Log::info('[GIFT:PREVIEW] Preview request', [
+            'gift_id' => $id,
+            'user_id' => Auth::id(),
+        ]);
+
+        $gift = Gift::where('id', $id)
+            ->where('sender_id', Auth::id())
+            ->with(['memories', 'photos'])
+            ->firstOrFail();
+
+        Log::info('[GIFT:PREVIEW] Preview data', [
+            'has_map' => $gift->has_map,
+            'has_proposal' => $gift->has_proposal,
+            'proposed_datetime' => $gift->proposed_datetime,
+        ]);
+
         return response()->json([
             'id' => $gift->id,
             'template_type' => $gift->template_type,
-            'locked' => $gift->has_secret_question && ! $isUnlocked,
 
             'recipient_name' => $gift->recipient_name,
             'sender_name' => $gift->sender_name,
 
-            'secret_question' => $gift->has_secret_question && ! $isUnlocked
-                ? $gift->secret_question
-                : null,
+            'message_title' => $gift->message_title,
+            'message_body' => $gift->message_body,
 
-            'secret_hint' => $gift->has_secret_question && ! $isUnlocked
-                ? $gift->secret_hint
-                : null,
-
-            'message_title' => $isUnlocked ? $gift->message_title : null,
-            'message_body' => $isUnlocked ? $gift->message_body : null,
-            'message_style' => $isUnlocked ? $gift->message_style : null,
-
-            'love_letter' => $isUnlocked && $gift->has_love_letter ? [
+            'love_letter' => $gift->has_love_letter ? [
                 'content' => $gift->love_letter_content,
-                'style' => $gift->love_letter_style,
             ] : null,
 
-            'photos' => $isUnlocked
-                ? $gift->photos->map(fn ($p) => asset($p->image_path))
-                : [],
+            'memories' => $gift->memories->pluck('caption')->values(),
 
-            'map' => $isUnlocked && $gift->has_map ? [
+            'photos' => $gift->photos->map(fn ($p) => asset($p->image_url)),
+
+            'map' => $gift->has_map ? [
                 'sender_location' => $gift->sender_location,
                 'recipient_location' => $gift->recipient_location,
-                'distance_message' => $gift->distance_message,
             ] : null,
 
-            'proposal' => $isUnlocked && $gift->has_proposal ? [
+            'proposal' => $gift->has_proposal ? [
                 'question' => $gift->proposal_question,
-                'response' => $gift->proposal_response,
+                'response' => null,
             ] : null,
+
+
+            'is_preview' => true,
         ]);
     }
+
 
     /* =========================================================
      |  5. VERIFY + UNLOCK (ANTI-BRUTEFORCE)
@@ -297,20 +479,39 @@ class PremiumGiftController extends Controller
     }
 
     /* =========================================================
-     |  7. IMAGE UPLOAD (PREMIUM)
-     ========================================================= */
+    |  7. IMAGE UPLOAD (PREMIUM) — FIXED
+    ========================================================= */
+
+
     public function uploadImage(Request $request, string $id)
     {
+        Log::info('[GIFT:IMAGE] Upload request received', [
+            'gift_id' => $id,
+            'user_id' => Auth::id(),
+            'has_file' => $request->hasFile('image'),
+        ]);
+
         $gift = Gift::where('id', $id)
             ->where('sender_id', Auth::id())
             ->where('status', 'draft')
             ->first();
 
         if (! $gift) {
+            Log::warning('[GIFT:IMAGE] Gift not found or not editable', [
+                'gift_id' => $id,
+                'user_id' => Auth::id(),
+            ]);
+
             return response()->json([
                 'message' => 'Gift not found or not editable',
             ], 404);
         }
+
+        Log::info('[GIFT:IMAGE] Gift found', [
+            'gift_id' => $gift->id,
+            'status' => $gift->status,
+            'existing_photos' => $gift->photos()->count(),
+        ]);
 
         $request->validate([
             'image' => 'required|image|mimes:jpg,jpeg,png,webp|max:5120',
@@ -320,22 +521,135 @@ class PremiumGiftController extends Controller
 
         if (! File::exists($path)) {
             File::makeDirectory($path, 0755, true);
+            Log::info('[GIFT:IMAGE] Directory created', [
+                'path' => $path,
+            ]);
         }
 
         $file = $request->file('image');
+
+        Log::info('[GIFT:IMAGE] File received', [
+            'original_name' => $file->getClientOriginalName(),
+            'mime' => $file->getMimeType(),
+            'size_kb' => round($file->getSize() / 1024, 2),
+        ]);
+
         $filename = Str::uuid() . '.' . $file->getClientOriginalExtension();
         $file->move($path, $filename);
 
+        $relativePath = "images/premium/{$gift->id}/{$filename}";
+
+        Log::info('[GIFT:IMAGE] File moved', [
+            'relative_path' => $relativePath,
+            'exists_on_disk' => File::exists(public_path($relativePath)),
+        ]);
+
         $photo = GiftPhoto::create([
             'gift_id' => $gift->id,
-            'image_path' => "images/premium/{$gift->id}/{$filename}",
+            'image_url' => $relativePath,
+            'display_order' => $gift->photos()->count(),
+        ]);
+
+        Log::info('[GIFT:IMAGE] Photo DB record created', [
+            'photo_id' => $photo->id,
+            'gift_id' => $photo->gift_id,
+            'image_url' => $photo->image_url,
+        ]);
+
+        // Optional but recommended
+        $gift->update([
+            'has_gallery' => true,
+        ]);
+
+        Log::info('[GIFT:IMAGE] Gift gallery flag updated', [
+            'gift_id' => $gift->id,
+            'has_gallery' => $gift->has_gallery,
         ]);
 
         return response()->json([
             'id' => $photo->id,
-            'url' => asset($photo->image_path),
+            'url' => asset($photo->image_url),
         ], 201);
     }
+
+    public function applyCoupon(Request $request, string $id)
+{
+    $request->validate([
+        'code' => 'required|string',
+    ]);
+
+    Log::info('[COUPON] Apply attempt', [
+        'gift_id' => $id,
+        'user_id' => Auth::id(),
+        'code' => $request->code,
+    ]);
+
+    return DB::transaction(function () use ($request, $id) {
+
+        // 1️⃣ Fetch gift (must still be draft)
+        $gift = Gift::where('id', $id)
+            ->where('sender_id', Auth::id())
+            ->where('status', 'draft')
+            ->lockForUpdate()
+            ->first();
+
+        if (! $gift) {
+            return response()->json([
+                'message' => 'Gift not found or already unlocked',
+            ], 404);
+        }
+
+        // 2️⃣ Fetch coupon
+        $coupon = Coupon::where('code', $request->code)
+            ->where('is_active', true)
+            ->lockForUpdate()
+            ->first();
+
+        if (! $coupon) {
+            return response()->json([
+                'message' => 'Invalid coupon code',
+            ], 403);
+        }
+
+        if ($coupon->isExpired()) {
+            return response()->json([
+                'message' => 'Coupon expired',
+            ], 403);
+        }
+
+        if (! $coupon->hasRemainingUses()) {
+            return response()->json([
+                'message' => 'Coupon usage limit reached',
+            ], 403);
+        }
+
+        // 3️⃣ Consume coupon
+        $coupon->increment('used_count');
+
+        // 4️⃣ Publish gift (existing behaviour)
+        $gift->update([
+            'status' => 'published',
+            'coupon_id' => $coupon->id,
+            'share_token' => $this->generateUniqueToken(),
+        ]);
+
+        Log::info('[COUPON] Gift unlocked via coupon', [
+            'gift_id' => $gift->id,
+            'coupon_id' => $coupon->id,
+        ]);
+
+        return response()->json([
+            'message' => 'Gift unlocked successfully',
+            'share_token' => $gift->share_token,
+            'share_url' => config('app.frontend_url')
+                . '/gift/valentine/' . $gift->id
+                . '?token=' . $gift->share_token,
+        ]);
+
+    });
+}
+
+
 
     /* =========================================================
      |  TOKEN GENERATOR

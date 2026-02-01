@@ -54,18 +54,19 @@ class Gift extends Model
     ];
 
     protected $casts = [
-        'has_secret_question' => 'boolean',
-        'has_love_letter' => 'boolean',
-        'has_memories' => 'boolean',
-        'has_gallery' => 'boolean',
-        'has_map' => 'boolean',
-        'has_proposal' => 'boolean',
+    'love_letter_content' => 'array',
+    'sender_location' => 'array',
+    'recipient_location' => 'array',
+    'proposed_datetime' => 'datetime',
 
-        'sender_location' => 'array',
-        'recipient_location' => 'array',
-        'proposed_datetime' => 'datetime',
-        'first_viewed_at' => 'datetime',
-    ];
+    'has_secret_question' => 'boolean',
+    'has_love_letter' => 'boolean',
+    'has_memories' => 'boolean',
+    'has_gallery' => 'boolean',
+    'has_map' => 'boolean',
+    'has_proposal' => 'boolean',
+];
+
 
     public function sender()
     {
@@ -81,4 +82,9 @@ class Gift extends Model
     {
         return $this->hasMany(GiftPhoto::class);
     }
+    public function coupon()
+    {
+        return $this->belongsTo(Coupon::class);
+    }
+
 }

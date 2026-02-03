@@ -18,7 +18,7 @@ use App\Http\Controllers\Api\UserDashboardController;
 
 /*
 |--------------------------------------------------------------------------
-| AUTH CHECK (SESSION AWARE)
+| AUTH CHECK (TOKEN BASED)
 |--------------------------------------------------------------------------
 */
 Route::middleware('auth:sanctum')->get('/user', function (Request $request) {
@@ -44,16 +44,15 @@ Route::prefix('auth')->group(function () {
 
 /*
 |--------------------------------------------------------------------------
-| FREE GIFTS (PUBLIC + SESSION AWARE)
+| FREE GIFTS (PUBLIC + OPTIONAL AUTH)
 |--------------------------------------------------------------------------
-| - Guests allowed
-| - Logged-in users detected automatically
-| - Uses web middleware for session
+| - Guests can create gifts
+| - Logged-in users get sender_id stored
 */
-Route::middleware('web')->group(function () {
-    Route::post('/free-gifts', [FreeGiftController::class, 'store']);
-    Route::get('/free-gifts/{token}', [FreeGiftController::class, 'show']);
-});
+Route::post('/free-gifts', [FreeGiftController::class, 'store'])
+    ->middleware('optional.sanctum');
+
+Route::get('/free-gifts/{token}', [FreeGiftController::class, 'show']);
 
 /*
 |--------------------------------------------------------------------------
@@ -65,46 +64,35 @@ Route::middleware('auth:sanctum')->get(
     [UserDashboardController::class, 'index']
 );
 
-
 /*
 |--------------------------------------------------------------------------
-| PREMIUM GIFTS (AUTH REQUIRED)
+| PREMIUM GIFTS
 |--------------------------------------------------------------------------
 */
 Route::get('/premium-gifts/{id}/preview', [PremiumGiftController::class, 'preview'])
     ->middleware('auth:sanctum');
+
 Route::post(
     '/premium-gifts/{token}/verify-secret',
     [PremiumGiftController::class, 'verifySecret']
 );
-/*
-|--------------------------------------------------------------------------
-| PREMIUM GIFTS (PUBLIC VIEW)
-|--------------------------------------------------------------------------
-*/
+
 Route::get(
     '/premium-gifts/view/{token}',
     [PremiumGiftController::class, 'view']
 );
+
 Route::prefix('premium-gifts')
     ->middleware('auth:sanctum')
     ->group(function () {
 
-    
         Route::post('/', [PremiumGiftController::class, 'store']);
         Route::get('/{id}', [PremiumGiftController::class, 'show']);
         Route::put('/{id}', [PremiumGiftController::class, 'update']);
 
         Route::post('/{id}/apply-coupon', [PremiumGiftController::class, 'applyCoupon']);
-        Route::post('/{id}/publish', [PremiumGiftController::class, 'publish']); // future payment success
-
-
         Route::post('/{id}/publish', [PremiumGiftController::class, 'publish']);
         Route::post('/{id}/images', [PremiumGiftController::class, 'uploadImage']);
-
-        // Route::get('/view/{token}', [PremiumGiftController::class, 'view']);
-        // Route::post('/{token}/verify-secret', [PremiumGiftController::class, 'verifySecret']);
-        
 
         Route::post('/{token}/proposal/accept', [PremiumGiftController::class, 'acceptProposal']);
     });

@@ -214,32 +214,35 @@ class FreeGiftController extends Controller
     /**
      * STORE: LETTER
      */
-    private function storeLetter(Request $request)
-    {
-        $validated = $request->validate([
-            'gift_type' => 'required|string|max:50',
-            'recipient_name' => 'required|string|max:100',
-            'sender_name' => 'required|string|max:100',
-            'gift_data.content' => 'required|string|max:5000',
-        ]);
+private function storeLetter(Request $request)
+{
+    $validated = $request->validate([
+        'gift_type' => 'required|string|max:50',
+        'recipient_name' => 'required|string|max:100',
+        'sender_name' => 'required|string|max:100',
+        'gift_data.content' => 'required|string|max:5000',
+        'gift_data.paper' => 'nullable|string|max:50',
+    ]);
 
-        $gift = FreeGift::create([
-            'sender_id' => Auth::id(),
-            'gift_type' => 'letter',
-            'recipient_name' => $validated['recipient_name'],
-            'sender_name' => $validated['sender_name'],
-            'gift_data' => [
-                'content' => $validated['gift_data']['content'],
-            ],
-            'share_token' => $this->generateUniqueToken(),
-        ]);
+    $gift = FreeGift::create([
+        'sender_id' => Auth::id(),
+        'gift_type' => 'letter',
+        'recipient_name' => $validated['recipient_name'],
+        'sender_name' => $validated['sender_name'],
+        'gift_data' => [
+            'content' => $validated['gift_data']['content'],
+            'paper'   => $validated['gift_data']['paper'] ?? 'classic',
+        ],
+        'share_token' => $this->generateUniqueToken(),
+    ]);
 
-        return response()->json([
-            'token' => $gift->share_token,
-            'share_url' =>
-                config('app.frontend_url') . '/free-gifts/letter/' . $gift->share_token,
-        ], 201);
-    }
+    return response()->json([
+        'token' => $gift->share_token,
+        'share_url' =>
+            config('app.frontend_url') . '/free-gifts/letter/' . $gift->share_token,
+    ], 201);
+}
+
 
     /**
      * STORE: CHOCOLATES

@@ -20,8 +20,10 @@ return [
     'allowed_methods' => ['*'],
 
     'allowed_origins' => [
-        'http://localhost:3000',
-        'http://127.0.0.1:3000',
+        // Production
+        'https://tohfaah.com',
+        'https://www.tohfaah.com',
+
     ],
 
     'allowed_origins_patterns' => [],
@@ -29,7 +31,7 @@ return [
     'allowed_headers' => [
         'Content-Type',
         'X-Requested-With',
-        'Authorization', // 🔥 REQUIRED
+        'Authorization', 
         'Accept',
         'Origin',
     ],

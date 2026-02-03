@@ -3,9 +3,11 @@
 namespace App\Http\Controllers;
 
 use App\Models\User;
+use App\Mail\WelcomeUserMail;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Mail;
 use Illuminate\Validation\ValidationException;
 use Throwable;
 
@@ -49,6 +51,18 @@ class AuthController extends Controller
 
             Log::info('REGISTER: user created', ['user_id' => $user->id]);
 
+            /**
+             * SEND WELCOME EMAIL (NON-BLOCKING)
+             */
+            try {
+                Mail::to($user->email)->send(new WelcomeUserMail($user));
+            } catch (Throwable $mailError) {
+                Log::warning('REGISTER: welcome email failed', [
+                    'user_id' => $user->id,
+                    'error' => $mailError->getMessage(),
+                ]);
+            }
+
             return response()->json([
                 'success' => true,
                 'message' => 'Account created successfully. Please log in.',
@@ -67,5 +81,4 @@ class AuthController extends Controller
             ], 500);
         }
     }
-
 }

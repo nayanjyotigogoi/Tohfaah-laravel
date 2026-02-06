@@ -20,9 +20,10 @@ return [
     'allowed_methods' => ['*'],
 
     'allowed_origins' => [
-        // Production
-        'https://tohfaah.com',
-        'https://www.tohfaah.com',
+        'http://localhost:3000',
+        'http://localhost:8000',
+
+
 
     ],
 

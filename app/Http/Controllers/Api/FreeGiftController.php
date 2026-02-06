@@ -43,46 +43,133 @@ class FreeGiftController extends Controller
     /**
      * STORE: POLAROID (IMAGE UPLOAD)
      */
-    private function storePolaroid(Request $request)
-    {
-        $validated = $request->validate([
-            'gift_type' => 'required|string|max:50',
-            'recipient_name' => 'required|string|max:100',
-            'sender_name' => 'nullable|string|max:100',
-            'message' => 'nullable|string',
-            'image' => 'required|image|max:5120',
-        ]);
+private function storePolaroid(Request $request)
+{
+    /* =========================
+       LOG: Incoming request
+    ========================= */
+    \Log::info('POLAROID REQUEST RECEIVED', [
+        'all' => $request->all(),
+        'has_image' => $request->hasFile('image'),
+        'auth_id' => Auth::id(),
+    ]);
 
-        $folder = public_path('images/polaroid');
+    /* =========================
+       VALIDATION
+    ========================= */
+    $validated = $request->validate([
+        'gift_type' => 'required|string|max:50',
+        'recipient_name' => 'required|string|max:100',
+        'sender_name' => 'nullable|string|max:100',
+        'message' => 'nullable|string',
+        'image' => 'required|image|max:5120',
+    ]);
 
-        if (!File::exists($folder)) {
-            File::makeDirectory($folder, 0755, true);
-        }
+    \Log::info('POLAROID VALIDATION PASSED', [
+        'validated' => $validated,
+    ]);
 
-        $image = $request->file('image');
-        $filename = Str::uuid() . '.' . $image->getClientOriginalExtension();
+    /* =========================
+       FILE INFO
+    ========================= */
+    $image = $request->file('image');
+
+    if (!$image) {
+        \Log::error('POLAROID IMAGE MISSING AFTER VALIDATION');
+        return response()->json(['message' => 'Image missing'], 422);
+    }
+
+    \Log::info('POLAROID IMAGE INFO', [
+        'original_name' => $image->getClientOriginalName(),
+        'size_kb' => round($image->getSize() / 1024, 2),
+        'mime' => $image->getMimeType(),
+    ]);
+
+    /* =========================
+       FOLDER PREP
+    ========================= */
+    $folder = public_path('images/polaroid');
+
+    if (!File::exists($folder)) {
+        File::makeDirectory($folder, 0755, true);
+        \Log::info('POLAROID FOLDER CREATED', ['path' => $folder]);
+    } else {
+        \Log::info('POLAROID FOLDER EXISTS', ['path' => $folder]);
+    }
+
+    /* =========================
+       FILE MOVE
+    ========================= */
+    $filename = Str::uuid() . '.' . $image->getClientOriginalExtension();
+
+    try {
         $image->move($folder, $filename);
 
+        \Log::info('POLAROID IMAGE MOVED', [
+            'filename' => $filename,
+            'full_path' => $folder . '/' . $filename,
+        ]);
+    } catch (\Exception $e) {
+        \Log::error('POLAROID IMAGE MOVE FAILED', [
+            'error' => $e->getMessage(),
+        ]);
+
+        return response()->json([
+            'message' => 'Image upload failed',
+        ], 500);
+    }
+
+    /* =========================
+       URL GENERATION
+    ========================= */
+    $imageUrl = asset('images/polaroid/' . $filename);
+
+    \Log::info('POLAROID IMAGE URL', [
+        'url' => $imageUrl,
+    ]);
+
+    /* =========================
+       DB INSERT
+    ========================= */
+    try {
         $gift = FreeGift::create([
-            'sender_id' => Auth::id(), // ✅ logged-in user only
+            'sender_id' => Auth::id(),
             'gift_type' => 'polaroid',
             'recipient_name' => $validated['recipient_name'],
             'sender_name' => $validated['sender_name'] ?? null,
             'gift_data' => [
                 'message' => $validated['message'] ?? null,
-                'image_path' => 'images/polaroid/' . $filename,
+                'image_url' => $imageUrl,
             ],
             'share_token' => $this->generateUniqueToken(),
         ]);
 
-        return response()->json([
+        \Log::info('POLAROID DB STORED', [
+            'gift_id' => $gift->id,
             'token' => $gift->share_token,
-            'share_url' =>
-                config('app.frontend_url') . '/free-gifts/polaroid/' . $gift->share_token,
-            'image_path' => $gift->gift_data['image_path'], // ✅ THIS WAS MISSING
-        ], 201);
+        ]);
 
+    } catch (\Exception $e) {
+        \Log::error('POLAROID DB INSERT FAILED', [
+            'error' => $e->getMessage(),
+        ]);
+
+        return response()->json([
+            'message' => 'Database insert failed',
+        ], 500);
     }
+
+    /* =========================
+       SUCCESS RESPONSE
+    ========================= */
+    return response()->json([
+        'token' => $gift->share_token,
+        'share_url' =>
+            config('app.frontend_url') . '/free-gifts/polaroid/' . $gift->share_token,
+        'image_url' => $imageUrl,
+    ], 201);
+}
+
 
     /**
      * STORE: HUG
@@ -325,13 +412,35 @@ public function show(string $token)
 
     $gift->increment('view_count');
 
+    $giftData = $gift->gift_data ?? [];
+
+    /**
+     * Normalize image URL ONLY if exists
+     * (Polaroid support)
+     */
+    if (isset($giftData['image_url'])) {
+        if (!str_starts_with($giftData['image_url'], 'http')) {
+            $giftData['image_url'] = asset($giftData['image_url']);
+        }
+    }
+
+    if (isset($giftData['image_path'])) {
+        $giftData['image_url'] = asset($giftData['image_path']);
+        unset($giftData['image_path']);
+    }
+
+    /**
+     * RETURN ORIGINAL STRUCTURE
+     */
     return response()->json([
         'gift_type' => $gift->gift_type,
         'recipient_name' => $gift->recipient_name,
         'sender_name' => $gift->sender_name,
-        'gift_data' => $gift->gift_data ?? [],
+        'gift_data' => $giftData,
     ]);
 }
+    
+
 
 
     private function generateUniqueToken(): string

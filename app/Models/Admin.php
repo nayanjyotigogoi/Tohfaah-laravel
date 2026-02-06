@@ -4,10 +4,11 @@ namespace App\Models;
 
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
+use Laravel\Sanctum\HasApiTokens;
 
 class Admin extends Authenticatable
 {
-    use Notifiable;
+    use HasApiTokens, Notifiable;
 
     /**
      * The guard name for admin authentication.
@@ -21,6 +22,8 @@ class Admin extends Authenticatable
         'name',
         'email',
         'password',
+        'role',
+        'is_active',
     ];
 
     /**
@@ -31,10 +34,9 @@ class Admin extends Authenticatable
         'remember_token',
     ];
 
-    /**
-     * The attributes that should be cast.
-     */
-    protected $casts = [
-        'email_verified_at' => 'datetime',
-    ];
+    public function isSuperAdmin(): bool
+    {
+        return $this->role === 'super_admin';
+    }
+
 }

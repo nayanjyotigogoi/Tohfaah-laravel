@@ -8,6 +8,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Str;
 use Illuminate\Support\Facades\File;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Storage;
 use Intervention\Image\ImageManager;
 use Intervention\Image\Drivers\Gd\Driver;
 
@@ -63,13 +64,14 @@ class FreeGiftController extends Controller
             'recipient_name' => 'required|string|max:100',
             'sender_name' => 'nullable|string|max:100',
             'message' => 'nullable|string',
-            'image' => 'required|image|max:10240', // Increased max upload size to 10MB to allow raw mobile photos
+            'image' => 'required|image|max:10240', // 10MB Limit
         ]);
 
         /* =========================
-           FOLDER PREP
+           FOLDER PREP (PRIVATE STORAGE)
         ========================= */
-        $folder = public_path('images/polaroid');
+        // We now use storage_path() which is NOT public
+        $folder = storage_path('app/polaroid_images');
 
         if (!File::exists($folder)) {
             File::makeDirectory($folder, 0755, true);
@@ -89,15 +91,15 @@ class FreeGiftController extends Controller
             // Read image (decodes and strips metadata like GPS)
             $image = $manager->read($imageFile);
             
-            // Resize if too large (max width 1080px) to save disk space
+            // Resize if too large (max width 1080px)
             if ($image->width() > 1080) {
                 $image->scale(width: 1080);
             }
 
-            // Save the optimized, clean image
+            // Save to PRIVATE storage folder
             $image->save($destinationPath);
 
-            \Log::info('POLAROID IMAGE PROCESSED & SAVED', [
+            \Log::info('POLAROID IMAGE PROCESSED & SAVED (PRIVATE)', [
                 'filename' => $filename,
                 'path' => $destinationPath,
                 'final_width' => $image->width()
@@ -114,14 +116,12 @@ class FreeGiftController extends Controller
         }
 
         /* =========================
-           URL GENERATION
-        ========================= */
-        $imageUrl = asset('images/polaroid/' . $filename);
-        $imagePathRelative = 'images/polaroid/' . $filename;
-
-        /* =========================
            DB INSERT
         ========================= */
+        // Store relative path (polaroid_images/xyz.jpg)
+        // NOT a public URL
+        $imagePathRelative = 'polaroid_images/' . $filename;
+
         try {
             $gift = FreeGift::create([
                 'sender_id' => Auth::id(),
@@ -130,16 +130,19 @@ class FreeGiftController extends Controller
                 'sender_name' => $validated['sender_name'] ?? null,
                 'gift_data' => [
                     'message' => $validated['message'] ?? null,
-                    'image_url' => $imageUrl,      // Full URL for frontend
-                    'image_path' => $imagePathRelative // Relative path for storage
+                    // We only store the internal path now
+                    'image_path' => $imagePathRelative
                 ],
                 'share_token' => $this->generateUniqueToken(),
             ]);
 
+            // Create the PROXY URL
+            $proxyUrl = route('free-gifts.image', ['token' => $gift->share_token]);
+
             return response()->json([
                 'token' => $gift->share_token,
                 'share_url' => config('app.frontend_url') . '/free-gifts/polaroid/' . $gift->share_token,
-                'image_url' => $imageUrl,
+                'image_url' => $proxyUrl, // Return the proxy URL
             ], 201);
 
         } catch (\Exception $e) {
@@ -402,30 +405,60 @@ class FreeGiftController extends Controller
 
         $giftData = $gift->gift_data ?? [];
 
-        /**
-         * Normalize image URL ONLY if exists
-         * (Polaroid support)
-         */
-        if (isset($giftData['image_url'])) {
-            if (!str_starts_with($giftData['image_url'], 'http')) {
-                $giftData['image_url'] = asset($giftData['image_url']);
-            }
-        }
-
+        // ----------------------------------------------------
+        // LOGIC FOR PROXY URL
+        // ----------------------------------------------------
         if (isset($giftData['image_path'])) {
-            $giftData['image_url'] = asset($giftData['image_path']);
+            // Return PROXY URL to hide real path
+            $giftData['image_url'] = route('free-gifts.image', ['token' => $token]);
+            
+            // Remove the internal path from the response
             unset($giftData['image_path']);
         }
+        // Fallback for old images (if any still have 'image_url')
+        elseif (isset($giftData['image_url']) && !str_starts_with($giftData['image_url'], 'http')) {
+             $giftData['image_url'] = asset($giftData['image_url']);
+        }
 
-        /**
-         * RETURN ORIGINAL STRUCTURE
-         */
         return response()->json([
             'gift_type' => $gift->gift_type,
             'recipient_name' => $gift->recipient_name,
             'sender_name' => $gift->sender_name,
             'gift_data' => $giftData,
         ]);
+    }
+
+    /**
+     * SERVE IMAGE (PROXY)
+     * GET /free-gifts/image/{token}
+     */
+    public function serveImage(string $token)
+    {
+        $gift = FreeGift::where('share_token', $token)->first();
+
+        // 1. Gift must exist and be a polaroid
+        if (!$gift || $gift->gift_type !== 'polaroid') {
+            abort(404);
+        }
+
+        $path = $gift->gift_data['image_path'] ?? null;
+
+        // 2. Path must exist
+        if (!$path) {
+            abort(404);
+        }
+
+        // 3. File must exist in PRIVATE storage
+        if (!Storage::exists($path)) {
+             // FALLBACK: maybe it's an old image in public folder?
+             if (file_exists(public_path($path))) {
+                 return response()->file(public_path($path));
+             }
+             abort(404);
+        }
+
+        // 4. Return the file securely
+        return Storage::response($path);
     }
 
     private function generateUniqueToken(): string

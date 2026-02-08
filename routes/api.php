@@ -53,6 +53,7 @@ Route::post('/free-gifts', [FreeGiftController::class, 'store'])
     ->middleware('optional.sanctum');
 
 Route::get('/free-gifts/{token}', [FreeGiftController::class, 'show']);
+Route::get('/free-gifts/image/{token}', [FreeGiftController::class , 'serveImage'])->name('free-gifts.image');
 
 /*
 |--------------------------------------------------------------------------

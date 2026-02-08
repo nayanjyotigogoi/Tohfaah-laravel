@@ -8,6 +8,8 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Str;
 use Illuminate\Support\Facades\File;
 use Illuminate\Support\Facades\Auth;
+use Intervention\Image\ImageManager;
+use Intervention\Image\Drivers\Gd\Driver;
 
 class FreeGiftController extends Controller
 {
@@ -18,9 +20,9 @@ class FreeGiftController extends Controller
     public function store(Request $request)
     {
         \Log::info('AUTH CHECK', [
-        'auth_id' => Auth::id(),
-        'user' => Auth::user(),
-        'session' => session()->all(),
+            'auth_id' => Auth::id(),
+            'user' => Auth::user(),
+            'session' => session()->all(),
         ]);
 
         $giftType = $request->input('gift_type');
@@ -33,7 +35,7 @@ class FreeGiftController extends Controller
             'balloons'   => $this->storeBalloons($request),
             'letter'     => $this->storeLetter($request),
             'chocolates' => $this->storeChocolates($request),
-            'moment' => $this->storeMoment($request),
+            'moment'     => $this->storeMoment($request),
             default      => response()->json([
                 'message' => 'Invalid gift type',
             ], 422),
@@ -43,132 +45,118 @@ class FreeGiftController extends Controller
     /**
      * STORE: POLAROID (IMAGE UPLOAD)
      */
-private function storePolaroid(Request $request)
-{
-    /* =========================
-       LOG: Incoming request
-    ========================= */
-    \Log::info('POLAROID REQUEST RECEIVED', [
-        'all' => $request->all(),
-        'has_image' => $request->hasFile('image'),
-        'auth_id' => Auth::id(),
-    ]);
-
-    /* =========================
-       VALIDATION
-    ========================= */
-    $validated = $request->validate([
-        'gift_type' => 'required|string|max:50',
-        'recipient_name' => 'required|string|max:100',
-        'sender_name' => 'nullable|string|max:100',
-        'message' => 'nullable|string',
-        'image' => 'required|image|max:5120',
-    ]);
-
-    \Log::info('POLAROID VALIDATION PASSED', [
-        'validated' => $validated,
-    ]);
-
-    /* =========================
-       FILE INFO
-    ========================= */
-    $image = $request->file('image');
-
-    if (!$image) {
-        \Log::error('POLAROID IMAGE MISSING AFTER VALIDATION');
-        return response()->json(['message' => 'Image missing'], 422);
-    }
-
-    \Log::info('POLAROID IMAGE INFO', [
-        'original_name' => $image->getClientOriginalName(),
-        'size_kb' => round($image->getSize() / 1024, 2),
-        'mime' => $image->getMimeType(),
-    ]);
-
-    /* =========================
-       FOLDER PREP
-    ========================= */
-    $folder = public_path('images/polaroid');
-
-    if (!File::exists($folder)) {
-        File::makeDirectory($folder, 0755, true);
-        \Log::info('POLAROID FOLDER CREATED', ['path' => $folder]);
-    } else {
-        \Log::info('POLAROID FOLDER EXISTS', ['path' => $folder]);
-    }
-
-    /* =========================
-       FILE MOVE
-    ========================= */
-    $filename = Str::uuid() . '.' . $image->getClientOriginalExtension();
-
-    try {
-        $image->move($folder, $filename);
-
-        \Log::info('POLAROID IMAGE MOVED', [
-            'filename' => $filename,
-            'full_path' => $folder . '/' . $filename,
-        ]);
-    } catch (\Exception $e) {
-        \Log::error('POLAROID IMAGE MOVE FAILED', [
-            'error' => $e->getMessage(),
+    private function storePolaroid(Request $request)
+    {
+        /* =========================
+           LOG: Incoming request
+        ========================= */
+        \Log::info('POLAROID REQUEST RECEIVED', [
+            'has_image' => $request->hasFile('image'),
+            'auth_id' => Auth::id(),
         ]);
 
-        return response()->json([
-            'message' => 'Image upload failed',
-        ], 500);
-    }
+        /* =========================
+           VALIDATION
+        ========================= */
+        $validated = $request->validate([
+            'gift_type' => 'required|string|max:50',
+            'recipient_name' => 'required|string|max:100',
+            'sender_name' => 'nullable|string|max:100',
+            'message' => 'nullable|string',
+            'image' => 'required|image|max:10240', // Increased max upload size to 10MB to allow raw mobile photos
+        ]);
 
-    /* =========================
-       URL GENERATION
-    ========================= */
-    $imageUrl = asset('images/polaroid/' . $filename);
+        /* =========================
+           FOLDER PREP
+        ========================= */
+        $folder = public_path('images/polaroid');
 
-    \Log::info('POLAROID IMAGE URL', [
-        'url' => $imageUrl,
-    ]);
+        if (!File::exists($folder)) {
+            File::makeDirectory($folder, 0755, true);
+        }
 
-    /* =========================
-       DB INSERT
-    ========================= */
-    try {
-        $gift = FreeGift::create([
-            'sender_id' => Auth::id(),
-            'gift_type' => 'polaroid',
-            'recipient_name' => $validated['recipient_name'],
-            'sender_name' => $validated['sender_name'] ?? null,
-            'gift_data' => [
-                'message' => $validated['message'] ?? null,
+        /* =========================
+           IMAGE PROCESSING (SECURE)
+        ========================= */
+        $imageFile = $request->file('image');
+        $filename = Str::uuid() . '.' . $imageFile->getClientOriginalExtension();
+        $destinationPath = $folder . '/' . $filename;
+
+        try {
+            // Initialize Intervention Image Manager with GD Driver
+            $manager = new ImageManager(new Driver());
+            
+            // Read image (decodes and strips metadata like GPS)
+            $image = $manager->read($imageFile);
+            
+            // Resize if too large (max width 1080px) to save disk space
+            if ($image->width() > 1080) {
+                $image->scale(width: 1080);
+            }
+
+            // Save the optimized, clean image
+            $image->save($destinationPath);
+
+            \Log::info('POLAROID IMAGE PROCESSED & SAVED', [
+                'filename' => $filename,
+                'path' => $destinationPath,
+                'final_width' => $image->width()
+            ]);
+
+        } catch (\Exception $e) {
+            \Log::error('POLAROID IMAGE PROCESSING FAILED', [
+                'error' => $e->getMessage(),
+            ]);
+
+            return response()->json([
+                'message' => 'Image processing failed',
+            ], 500);
+        }
+
+        /* =========================
+           URL GENERATION
+        ========================= */
+        $imageUrl = asset('images/polaroid/' . $filename);
+        $imagePathRelative = 'images/polaroid/' . $filename;
+
+        /* =========================
+           DB INSERT
+        ========================= */
+        try {
+            $gift = FreeGift::create([
+                'sender_id' => Auth::id(),
+                'gift_type' => 'polaroid',
+                'recipient_name' => $validated['recipient_name'],
+                'sender_name' => $validated['sender_name'] ?? null,
+                'gift_data' => [
+                    'message' => $validated['message'] ?? null,
+                    'image_url' => $imageUrl,      // Full URL for frontend
+                    'image_path' => $imagePathRelative // Relative path for storage
+                ],
+                'share_token' => $this->generateUniqueToken(),
+            ]);
+
+            return response()->json([
+                'token' => $gift->share_token,
+                'share_url' => config('app.frontend_url') . '/free-gifts/polaroid/' . $gift->share_token,
                 'image_url' => $imageUrl,
-            ],
-            'share_token' => $this->generateUniqueToken(),
-        ]);
+            ], 201);
 
-        \Log::info('POLAROID DB STORED', [
-            'gift_id' => $gift->id,
-            'token' => $gift->share_token,
-        ]);
+        } catch (\Exception $e) {
+            \Log::error('POLAROID DB INSERT FAILED', [
+                'error' => $e->getMessage(),
+            ]);
 
-    } catch (\Exception $e) {
-        \Log::error('POLAROID DB INSERT FAILED', [
-            'error' => $e->getMessage(),
-        ]);
+            // Clean up image if DB fails
+            if (File::exists($destinationPath)) {
+                File::delete($destinationPath);
+            }
 
-        return response()->json([
-            'message' => 'Database insert failed',
-        ], 500);
+            return response()->json([
+                'message' => 'Database insert failed',
+            ], 500);
+        }
     }
-
-    /* =========================
-       SUCCESS RESPONSE
-    ========================= */
-    return response()->json([
-        'token' => $gift->share_token,
-        'share_url' =>
-            config('app.frontend_url') . '/free-gifts/polaroid/' . $gift->share_token,
-        'image_url' => $imageUrl,
-    ], 201);
-}
 
 
     /**
@@ -301,34 +289,34 @@ private function storePolaroid(Request $request)
     /**
      * STORE: LETTER
      */
-private function storeLetter(Request $request)
-{
-    $validated = $request->validate([
-        'gift_type' => 'required|string|max:50',
-        'recipient_name' => 'required|string|max:100',
-        'sender_name' => 'required|string|max:100',
-        'gift_data.content' => 'required|string|max:5000',
-        'gift_data.paper' => 'nullable|string|max:50',
-    ]);
+    private function storeLetter(Request $request)
+    {
+        $validated = $request->validate([
+            'gift_type' => 'required|string|max:50',
+            'recipient_name' => 'required|string|max:100',
+            'sender_name' => 'required|string|max:100',
+            'gift_data.content' => 'required|string|max:5000',
+            'gift_data.paper' => 'nullable|string|max:50',
+        ]);
 
-    $gift = FreeGift::create([
-        'sender_id' => Auth::id(),
-        'gift_type' => 'letter',
-        'recipient_name' => $validated['recipient_name'],
-        'sender_name' => $validated['sender_name'],
-        'gift_data' => [
-            'content' => $validated['gift_data']['content'],
-            'paper'   => $validated['gift_data']['paper'] ?? 'classic',
-        ],
-        'share_token' => $this->generateUniqueToken(),
-    ]);
+        $gift = FreeGift::create([
+            'sender_id' => Auth::id(),
+            'gift_type' => 'letter',
+            'recipient_name' => $validated['recipient_name'],
+            'sender_name' => $validated['sender_name'],
+            'gift_data' => [
+                'content' => $validated['gift_data']['content'],
+                'paper'   => $validated['gift_data']['paper'] ?? 'classic',
+            ],
+            'share_token' => $this->generateUniqueToken(),
+        ]);
 
-    return response()->json([
-        'token' => $gift->share_token,
-        'share_url' =>
-            config('app.frontend_url') . '/free-gifts/letter/' . $gift->share_token,
-    ], 201);
-}
+        return response()->json([
+            'token' => $gift->share_token,
+            'share_url' =>
+                config('app.frontend_url') . '/free-gifts/letter/' . $gift->share_token,
+        ], 201);
+    }
 
 
     /**
@@ -363,85 +351,82 @@ private function storeLetter(Request $request)
     }
 
     /**
- * STORE: MOMENT / SURPRISE
- */
-private function storeMoment(Request $request)
-{
-    $validated = $request->validate([
-        'gift_type' => 'required|string|max:50',
-        'recipient_name' => 'required|string|max:100',
-        'sender_name' => 'required|string|max:100',
-        'gift_data.title' => 'required|string|max:150',
-        'gift_data.message' => 'required|string|max:2000',
-        'gift_data.date' => 'required|date',
-        'gift_data.time' => 'nullable|string|max:10',
-    ]);
+     * STORE: MOMENT / SURPRISE
+     */
+    private function storeMoment(Request $request)
+    {
+        $validated = $request->validate([
+            'gift_type' => 'required|string|max:50',
+            'recipient_name' => 'required|string|max:100',
+            'sender_name' => 'required|string|max:100',
+            'gift_data.title' => 'required|string|max:150',
+            'gift_data.message' => 'required|string|max:2000',
+            'gift_data.date' => 'required|date',
+            'gift_data.time' => 'nullable|string|max:10',
+        ]);
 
-    $gift = FreeGift::create([
-        'sender_id' => Auth::id(), // nullable if guest
-        'gift_type' => 'moment',
-        'recipient_name' => $validated['recipient_name'],
-        'sender_name' => $validated['sender_name'],
-        'gift_data' => [
-            'title' => $validated['gift_data']['title'],
-            'message' => $validated['gift_data']['message'],
-            'date' => $validated['gift_data']['date'],
-            'time' => $validated['gift_data']['time'] ?? null,
-        ],
-        'share_token' => $this->generateUniqueToken(),
-    ]);
+        $gift = FreeGift::create([
+            'sender_id' => Auth::id(), // nullable if guest
+            'gift_type' => 'moment',
+            'recipient_name' => $validated['recipient_name'],
+            'sender_name' => $validated['sender_name'],
+            'gift_data' => [
+                'title' => $validated['gift_data']['title'],
+                'message' => $validated['gift_data']['message'],
+                'date' => $validated['gift_data']['date'],
+                'time' => $validated['gift_data']['time'] ?? null,
+            ],
+            'share_token' => $this->generateUniqueToken(),
+        ]);
 
-    return response()->json([
-        'token' => $gift->share_token,
-        'share_url' =>
-            config('app.frontend_url') . '/free-gifts/surprise/' . $gift->share_token,
-        'gift' => $gift,
-    ], 201);
-}
+        return response()->json([
+            'token' => $gift->share_token,
+            'share_url' =>
+                config('app.frontend_url') . '/free-gifts/surprise/' . $gift->share_token,
+            'gift' => $gift,
+        ], 201);
+    }
 
     /**
      * VIEW (COMMON)
      */
-public function show(string $token)
-{
-    $gift = FreeGift::where('share_token', $token)->first();
+    public function show(string $token)
+    {
+        $gift = FreeGift::where('share_token', $token)->first();
 
-    if (!$gift) {
-        return response()->json(['message' => 'Gift not found'], 404);
-    }
-
-    $gift->increment('view_count');
-
-    $giftData = $gift->gift_data ?? [];
-
-    /**
-     * Normalize image URL ONLY if exists
-     * (Polaroid support)
-     */
-    if (isset($giftData['image_url'])) {
-        if (!str_starts_with($giftData['image_url'], 'http')) {
-            $giftData['image_url'] = asset($giftData['image_url']);
+        if (!$gift) {
+            return response()->json(['message' => 'Gift not found'], 404);
         }
+
+        $gift->increment('view_count');
+
+        $giftData = $gift->gift_data ?? [];
+
+        /**
+         * Normalize image URL ONLY if exists
+         * (Polaroid support)
+         */
+        if (isset($giftData['image_url'])) {
+            if (!str_starts_with($giftData['image_url'], 'http')) {
+                $giftData['image_url'] = asset($giftData['image_url']);
+            }
+        }
+
+        if (isset($giftData['image_path'])) {
+            $giftData['image_url'] = asset($giftData['image_path']);
+            unset($giftData['image_path']);
+        }
+
+        /**
+         * RETURN ORIGINAL STRUCTURE
+         */
+        return response()->json([
+            'gift_type' => $gift->gift_type,
+            'recipient_name' => $gift->recipient_name,
+            'sender_name' => $gift->sender_name,
+            'gift_data' => $giftData,
+        ]);
     }
-
-    if (isset($giftData['image_path'])) {
-        $giftData['image_url'] = asset($giftData['image_path']);
-        unset($giftData['image_path']);
-    }
-
-    /**
-     * RETURN ORIGINAL STRUCTURE
-     */
-    return response()->json([
-        'gift_type' => $gift->gift_type,
-        'recipient_name' => $gift->recipient_name,
-        'sender_name' => $gift->sender_name,
-        'gift_data' => $giftData,
-    ]);
-}
-    
-
-
 
     private function generateUniqueToken(): string
     {

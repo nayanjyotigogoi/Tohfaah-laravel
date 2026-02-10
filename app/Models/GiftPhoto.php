@@ -16,6 +16,10 @@ class GiftPhoto extends Model
         'display_order',
     ];
 
+    protected $casts = [
+        'display_order' => 'integer',
+    ];
+
     public function gift()
     {
         return $this->belongsTo(Gift::class);

@@ -1,5 +1,5 @@
 <?php
-
+namespace App\Http\Controllers\Api;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
 
@@ -8,6 +8,7 @@ use Illuminate\Support\Facades\Route;
 | Controllers
 |--------------------------------------------------------------------------
 */
+
 use App\Http\Controllers\AuthController;
 use App\Http\Controllers\Auth\LoginController;
 use App\Http\Controllers\Auth\LogoutController;
@@ -69,30 +70,44 @@ Route::middleware('auth:sanctum')->get(
 | PREMIUM GIFTS
 |--------------------------------------------------------------------------
 */
-Route::get('/premium-gifts/{id}/preview', [PremiumGiftController::class, 'preview'])
-    ->middleware('auth:sanctum');
 
-Route::post(
-    '/premium-gifts/{token}/verify-secret',
-    [PremiumGiftController::class, 'verifySecret']
-);
+/*
+|--------------------------------------------------
+| Public Routes
+|--------------------------------------------------
+*/
 
+// View published gift
 Route::get(
     '/premium-gifts/view/{token}',
-    [PremiumGiftController::class, 'view']
+    [PremiumGiftController::class, 'viewGift']
 );
 
+// Verify secret answer
+Route::post(
+    '/premium-gifts/{token}/verify-secret',
+    [PremiumGiftController::class, 'verifyAndUnlock']
+);
+
+/*
+|--------------------------------------------------
+| Authenticated Routes
+|--------------------------------------------------
+*/
 Route::prefix('premium-gifts')
     ->middleware('auth:sanctum')
     ->group(function () {
 
-        Route::post('/', [PremiumGiftController::class, 'store']);
-        Route::get('/{id}', [PremiumGiftController::class, 'show']);
-        Route::put('/{id}', [PremiumGiftController::class, 'update']);
+        Route::post('/draft', [PremiumGiftController::class, 'createDraft']);
+
+        Route::put('/draft/{id}', [PremiumGiftController::class, 'updateDraft']);
+
+        Route::get('/preview/{token}', [PremiumGiftController::class, 'previewDraft']);
+
+        Route::post('/{id}/images', [PremiumGiftController::class, 'uploadImages']); // 🔥 ADD THIS
 
         Route::post('/{id}/apply-coupon', [PremiumGiftController::class, 'applyCoupon']);
-        Route::post('/{id}/publish', [PremiumGiftController::class, 'publish']);
-        Route::post('/{id}/images', [PremiumGiftController::class, 'uploadImage']);
 
-        Route::post('/{token}/proposal/accept', [PremiumGiftController::class, 'acceptProposal']);
+        Route::post('/{id}/publish', [PremiumGiftController::class, 'publishGift']);
     });
+

@@ -73,16 +73,16 @@ class UserDashboardController extends Controller
 
 
         $premiumMapped = $premiumGifts->map(fn ($g) => [
-    'id' => $g->id,
-    'type' => 'Premium Experience',
-    'recipient' => $g->recipient_name,
-    'status' => $g->status,
-    'date' => Carbon::parse($g->updated_at)->format('M d, Y'),
-    'link' => $g->status === 'published'
-        ? "{$frontend}/gift/valentine/{$g->id}?token={$g->share_token}"
-        : null,
-]);
-
+            'id' => $g->id,
+            'type' => 'Premium Experience',
+            'recipient' => $g->recipient_name,
+            'status' => $g->status,
+            'date' => Carbon::parse($g->updated_at)->format('M d, Y'),
+            'share_token' => $g->share_token,
+            'link' => $g->status === 'published'
+                ? "{$frontend}/premium-gifts/valentine/{$g->share_token}"
+                : null,
+        ]);
 
         $recent = collect()
             ->merge($freeMapped->map(fn ($g) => $g + ['category' => 'free']))

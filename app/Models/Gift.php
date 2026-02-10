@@ -4,87 +4,124 @@ namespace App\Models;
 
 use App\Models\Traits\UsesUuid;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class Gift extends Model
 {
     use UsesUuid;
 
     protected $fillable = [
+        // System
         'sender_id',
         'template_type',
         'status',
+        'payment_status',
+        'amount',
+        'coupon_code',
+        'coupon_applied',
         'share_token',
 
+        // Identity
         'recipient_name',
-        'recipient_nickname',
         'sender_name',
-        'sender_nickname',
 
+        // Lock
         'has_secret_question',
         'secret_question',
         'secret_answer_hash',
         'secret_hint',
 
-        'message_title',
-        'message_body',
-        'message_style',
+        // Template engine
+        'config',
 
-        'has_love_letter',
-        'love_letter_content',
-        'love_letter_style',
+        // Analytics
+        'view_count',
+        'first_viewed_at',
 
-        'has_memories',
-        'has_gallery',
-        'has_map',
-        'has_proposal',
-
-        'sender_location',
-        'recipient_location',
-        'distance_message',
-
-        'proposal_question',
-        'proposed_datetime',
-        'proposed_location',
-        'proposed_activity',
-        'proposal_response',
-
-        'intro_animation',
-        'transition_style',
-        'background_music',
+        // Lifecycle
+        'published_at',
+        'expires_at',
     ];
 
     protected $casts = [
-    'love_letter_content' => 'array',
-    'sender_location' => 'array',
-    'recipient_location' => 'array',
-    'proposed_datetime' => 'datetime',
+        'config' => 'array',
+        'has_secret_question' => 'boolean',
+        'coupon_applied' => 'boolean',
+        'expires_at' => 'datetime',
+        'published_at' => 'datetime',
+        'amount' => 'decimal:2',
+    ];
 
-    'has_secret_question' => 'boolean',
-    'has_love_letter' => 'boolean',
-    'has_memories' => 'boolean',
-    'has_gallery' => 'boolean',
-    'has_map' => 'boolean',
-    'has_proposal' => 'boolean',
-];
+    /*
+    |--------------------------------------------------------------------------
+    | Relationships
+    |--------------------------------------------------------------------------
+    */
 
-
-    public function sender()
+    public function sender(): BelongsTo
     {
         return $this->belongsTo(User::class, 'sender_id');
     }
 
-    public function memories()
+    public function memories(): HasMany
     {
-        return $this->hasMany(GiftMemory::class);
+        return $this->hasMany(GiftMemory::class)->orderBy('display_order');
     }
 
-    public function photos()
+    public function photos(): HasMany
     {
-        return $this->hasMany(GiftPhoto::class);
-    }
-    public function coupon()
-    {
-        return $this->belongsTo(Coupon::class);
+        return $this->hasMany(GiftPhoto::class)->orderBy('display_order');
     }
 
+    /*
+    |--------------------------------------------------------------------------
+    | Business Helpers
+    |--------------------------------------------------------------------------
+    */
+
+    public function isDraft(): bool
+    {
+        return $this->status === 'draft';
+    }
+
+    public function isPublished(): bool
+    {
+        return $this->status === 'published';
+    }
+
+    public function isPaid(): bool
+    {
+        return in_array($this->payment_status, ['paid', 'coupon_redeemed']);
+    }
+
+    public function canBePublished(): bool
+    {
+        return $this->isDraft() && $this->isPaid();
+    }
+
+    public function publish(): void
+    {
+        $this->update([
+            'status' => 'published',
+            'published_at' => now(),
+            'expires_at' => now()->addDays(30),
+        ]);
+    }
+
+    public function isExpired(): bool
+    {
+        return $this->expires_at && $this->expires_at->isPast();
+    }
+
+    public function recordView(): void
+    {
+        $this->increment('view_count');
+
+        if (!$this->first_viewed_at) {
+            $this->update([
+                'first_viewed_at' => now()
+            ]);
+        }
+    }
 }

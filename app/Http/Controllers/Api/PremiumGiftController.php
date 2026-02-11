@@ -471,4 +471,32 @@ public function verifyAndUnlock(Request $request, $token)
         ]);
     }
 
+    public function deleteDraft($id)
+    {
+        $user = auth()->user();
+
+        $gift = \DB::table('gifts')
+            ->where('id', $id)
+            ->where('sender_id', $user->id)
+            ->where('status', 'draft')
+            ->first();
+
+        if (!$gift) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Draft not found.'
+            ], 404);
+        }
+
+        \DB::table('gifts')
+            ->where('id', $id)
+            ->delete();
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Draft deleted successfully.'
+        ]);
+    }
+
+
 }

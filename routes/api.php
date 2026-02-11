@@ -102,9 +102,11 @@ Route::prefix('premium-gifts')
 
         Route::put('/draft/{id}', [PremiumGiftController::class, 'updateDraft']);
 
+        Route::delete('/draft/{id}', [PremiumGiftController::class, 'deleteDraft']);
+
         Route::get('/preview/{token}', [PremiumGiftController::class, 'previewDraft']);
 
-        Route::post('/{id}/images', [PremiumGiftController::class, 'uploadImages']); // 🔥 ADD THIS
+        Route::post('/{id}/images', [PremiumGiftController::class, 'uploadImages']);
 
         Route::post('/{id}/apply-coupon', [PremiumGiftController::class, 'applyCoupon']);
 

@@ -17,10 +17,10 @@ use Exception;
 class PremiumGiftController extends Controller
 {
     /*
-    |--------------------------------------------------------------------------
-    | TOKEN GENERATOR (ONLY AT PUBLISH)
-    |--------------------------------------------------------------------------
-    */
+     |--------------------------------------------------------------------------
+     | TOKEN GENERATOR (ONLY AT PUBLISH)
+     |--------------------------------------------------------------------------
+     */
     private function generateShareToken()
     {
         Log::info('[GIFT:TOKEN] Generating share token');
@@ -35,10 +35,10 @@ class PremiumGiftController extends Controller
     }
 
     /*
-    |--------------------------------------------------------------------------
-    | 1️⃣ CREATE DRAFT
-    |--------------------------------------------------------------------------
-    */
+     |--------------------------------------------------------------------------
+     | 1️⃣ CREATE DRAFT
+     |--------------------------------------------------------------------------
+     */
     public function createDraft(Request $request)
     {
         Log::info('[GIFT:CREATE] Attempt', [
@@ -48,10 +48,10 @@ class PremiumGiftController extends Controller
         try {
 
             $validated = $request->validate([
-                'template_type'  => 'required|string|max:100',
+                'template_type' => 'required|string|max:100',
                 'recipient_name' => 'required|string|max:255',
-                'sender_name'    => 'required|string|max:255',
-                'config'         => 'required|json',
+                'sender_name' => 'required|string|max:255',
+                'config' => 'required|json',
             ]);
 
             $config = json_decode($validated['config'], true);
@@ -76,7 +76,8 @@ class PremiumGiftController extends Controller
                 'gift_id' => $gift->id,
             ]);
 
-        } catch (Exception $e) {
+        }
+        catch (Exception $e) {
             Log::error('[GIFT:CREATE] Failed', ['error' => $e->getMessage()]);
             return response()->json(['success' => false], 500);
         }
@@ -84,10 +85,10 @@ class PremiumGiftController extends Controller
 
 
     /*
-    |--------------------------------------------------------------------------
-    | 2️⃣ UPDATE DRAFT
-    |--------------------------------------------------------------------------
-    */
+     |--------------------------------------------------------------------------
+     | 2️⃣ UPDATE DRAFT
+     |--------------------------------------------------------------------------
+     */
     public function updateDraft(Request $request, $id)
     {
         Log::info('[GIFT:UPDATE] Attempt', [
@@ -121,7 +122,8 @@ class PremiumGiftController extends Controller
                     'question' => $request->lock_question
                 ]);
 
-            } else {
+            }
+            else {
                 $gift->has_secret_question = false;
             }
 
@@ -134,17 +136,23 @@ class PremiumGiftController extends Controller
 
             return response()->json(['success' => true]);
 
-        } catch (Exception $e) {
+        }
+        catch (Exception $e) {
             Log::error('[GIFT:UPDATE] Failed', ['error' => $e->getMessage()]);
             return response()->json(['success' => false], 500);
         }
     }
 
     /*
-    |--------------------------------------------------------------------------
-    | 3️⃣ UPLOAD IMAGES (DRAFT ONLY)
-    |--------------------------------------------------------------------------
-    */
+     |--------------------------------------------------------------------------
+     | 3️⃣ UPLOAD IMAGES (DRAFT ONLY)
+     |--------------------------------------------------------------------------
+     */
+    /*
+     |--------------------------------------------------------------------------
+     | 3️⃣ UPLOAD IMAGES (DRAFT ONLY)
+     |--------------------------------------------------------------------------
+     */
     public function uploadImages(Request $request, $id)
     {
         Log::info('[GIFT:IMAGES] Upload attempt', [
@@ -181,10 +189,11 @@ class PremiumGiftController extends Controller
                     $filename = Str::uuid() . '.' . $file->getClientOriginalExtension();
                     $file->move($folder, $filename);
 
-                    $config['visuals'][$photoKey] =
-                        asset("images/premium/{$gift->id}/{$filename}");
+                    // Store RELATIVE path: "images/premium/{gift_id}/{filename}"
+                    // This allows us to serve it via proxy later
+                    $config['visuals'][$photoKey] = "images/premium/{$gift->id}/{$filename}";
 
-                    Log::info('[GIFT:IMAGES] Stored', [
+                    Log::info('[GIFT:IMAGES] Stored relative path', [
                         'photo_key' => $photoKey,
                         'filename' => $filename
                     ]);
@@ -198,7 +207,8 @@ class PremiumGiftController extends Controller
 
             return response()->json(['success' => true]);
 
-        } catch (Exception $e) {
+        }
+        catch (Exception $e) {
 
             Log::error('[GIFT:IMAGES] Failed', [
                 'error' => $e->getMessage()
@@ -208,11 +218,53 @@ class PremiumGiftController extends Controller
         }
     }
 
+    /**
+     * SERVE PREMIUM IMAGE (PROXY)
+     * GET /premium-gifts/image/{token}/{filename}
+     */
+    public function serveImage(string $token, string $filename)
+    {
+        // 1. Validate Token & Find Gift
+        $gift = Gift::where('share_token', $token)
+            ->where('status', 'published')
+            ->first();
+
+        if (!$gift) {
+            abort(404);
+        }
+
+        // 2. Validate filename belongs to this gift (Security: prevent accessing other images)
+        // Check if config.visuals contains this filename
+        $visuals = $gift->config['visuals'] ?? [];
+        $isValidFile = false;
+
+        foreach ($visuals as $key => $path) {
+            if (str_contains($path, $filename)) {
+                $isValidFile = true;
+                break;
+            }
+        }
+
+        if (!$isValidFile) {
+            abort(403);
+        }
+
+        // 3. Construct Path (Public Compatible)
+        $path = public_path("images/premium/{$gift->id}/{$filename}");
+
+        if (!file_exists($path)) {
+            abort(404);
+        }
+
+        // 4. Serve File
+        return response()->file($path);
+    }
+
     /*
-    |--------------------------------------------------------------------------
-    | 4️⃣ APPLY COUPON
-    |--------------------------------------------------------------------------
-    */
+     |--------------------------------------------------------------------------
+     | 4️⃣ APPLY COUPON
+     |--------------------------------------------------------------------------
+     */
     public function applyCoupon(Request $request, $id)
     {
         try {
@@ -258,7 +310,8 @@ class PremiumGiftController extends Controller
                 'gift' => $gift
             ]);
 
-        } catch (Exception $e) {
+        }
+        catch (Exception $e) {
 
             return response()->json([
                 'success' => false,
@@ -268,11 +321,11 @@ class PremiumGiftController extends Controller
     }
 
     /*
-    |--------------------------------------------------------------------------
-    | 5️⃣ PUBLISH
-    |--------------------------------------------------------------------------
-    */
- public function publishGift($id)
+     |--------------------------------------------------------------------------
+     | 5️⃣ PUBLISH
+     |--------------------------------------------------------------------------
+     */
+    public function publishGift($id)
     {
         Log::info('[GIFT:PUBLISH] Attempt', [
             'gift_id' => $id
@@ -306,18 +359,18 @@ class PremiumGiftController extends Controller
                 'gift' => $gift
             ]);
 
-        } catch (Exception $e) {
+        }
+        catch (Exception $e) {
             Log::error('[GIFT:PUBLISH] Failed', ['error' => $e->getMessage()]);
             return response()->json(['success' => false], 500);
         }
     }
 
     /*
-    |--------------------------------------------------------------------------
-    | 6️⃣ PUBLIC VIEW (GATED)
-    |--------------------------------------------------------------------------
-    */
-public function viewGift(Request $request, $token)
+     |--------------------------------------------------------------------------
+     | 6️⃣ PUBLIC VIEW (GATED)
+     |--------------------------------------------------------------------------
+     */public function viewGift(Request $request, $token)
     {
         Log::info('[GIFT:VIEW] Attempt', [
             'token' => $token,
@@ -354,6 +407,24 @@ public function viewGift(Request $request, $token)
 
             $gift->recordView();
 
+            // TRANSFORM IMAGE URLS TO PROXY
+            $config = $gift->config;
+            if (isset($config['visuals'])) {
+                foreach ($config['visuals'] as $key => $path) {
+                    // Check if path is relative (e.g. images/premium/...) and NOT a full URL
+                    if ($path && is_string($path) && !str_starts_with($path, 'http')) {
+                        // usage: /api/premium-gifts/image/{token}/{filename}
+                        // Extract filename from path
+                        $filename = basename($path);
+                        $config['visuals'][$key] = route('premium-gifts.image', [
+                            'token' => $token,
+                            'filename' => $filename
+                        ]);
+                    }
+                }
+                $gift->config = $config; // Only for response, not saving to DB
+            }
+
             Log::info('[GIFT:VIEW] Returning FULL gift');
 
             return response()->json([
@@ -361,18 +432,18 @@ public function viewGift(Request $request, $token)
                 'gift' => $gift,
             ]);
 
-        } catch (Exception $e) {
+        }
+        catch (Exception $e) {
             Log::error('[GIFT:VIEW] Failed', ['error' => $e->getMessage()]);
             return response()->json(['success' => false], 404);
         }
     }
 
     /*
-    |--------------------------------------------------------------------------
-    | 7️⃣ VERIFY SECRET → ISSUE UNLOCK TOKEN
-    |--------------------------------------------------------------------------
-    */
-public function verifyAndUnlock(Request $request, $token)
+     |--------------------------------------------------------------------------
+     | 7️⃣ VERIFY SECRET → ISSUE UNLOCK TOKEN
+     |--------------------------------------------------------------------------
+     */public function verifyAndUnlock(Request $request, $token)
     {
         Log::info('[GIFT:UNLOCK] Attempt', ['token' => $token]);
 
@@ -412,17 +483,18 @@ public function verifyAndUnlock(Request $request, $token)
                 'unlock_token' => $unlockToken
             ]);
 
-        } catch (Exception $e) {
+        }
+        catch (Exception $e) {
             Log::error('[GIFT:UNLOCK] Failed', ['error' => $e->getMessage()]);
             return response()->json(['success' => false], 500);
         }
     }
 
     /*
-    |--------------------------------------------------------------------------
-    | PREVIEW DRAFT
-    |--------------------------------------------------------------------------
-    */
+     |--------------------------------------------------------------------------
+     | PREVIEW DRAFT
+     |--------------------------------------------------------------------------
+     */
     public function previewDraft($id)
     {
         Log::info('[GIFT:PREVIEW] Attempt', [
@@ -441,12 +513,26 @@ public function verifyAndUnlock(Request $request, $token)
                 'gift_id' => $gift->id
             ]);
 
+            // TRANSFORM IMAGE URLS FOR PREVIEW (USE ASSET() FOR OWNER)
+            $config = $gift->config;
+            if (isset($config['visuals'])) {
+                foreach ($config['visuals'] as $key => $path) {
+                    if ($path && is_string($path) && !str_starts_with($path, 'http')) {
+                        // Drafts have no Share Token, so we serve the direct asset URL
+                        // Only the authenticated Owner sees this, so it's acceptable.
+                        $config['visuals'][$key] = asset($path);
+                    }
+                }
+                $gift->config = $config;
+            }
+
             return response()->json([
                 'gift' => $gift,
                 'is_preview' => true
             ]);
 
-        } catch (Exception $e) {
+        }
+        catch (Exception $e) {
 
             Log::error('[GIFT:PREVIEW] Failed', [
                 'error' => $e->getMessage()

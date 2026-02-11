@@ -26,10 +26,15 @@ Route::prefix('auth')->group(function () {
     Route::post('/forgot-password', [PasswordResetController::class , 'sendResetLink']);
     Route::post('/reset-password', [PasswordResetController::class , 'reset']);
 
+    // Google Auth
+    Route::get('/google', [\App\Http\Controllers\Api\SocialAuthController::class , 'redirectToGoogle']);
+    Route::get('/google/callback', [\App\Http\Controllers\Api\SocialAuthController::class , 'handleGoogleCallback']);
+
     Route::middleware('auth:sanctum')->group(function () {
             Route::post('/logout', [LogoutController::class , 'logout']);
         }
-        );    });
+        );
+    });
 
 /* |-------------------------------------------------------------------------- | FREE GIFTS (PUBLIC + OPTIONAL AUTH) |-------------------------------------------------------------------------- | - Guests can create gifts | - Logged-in users get sender_id stored */
 Route::post('/free-gifts', [FreeGiftController::class , 'store'])

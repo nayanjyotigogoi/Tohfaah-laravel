@@ -27,6 +27,7 @@ class User extends Authenticatable
         'full_name',
         'avatar_url',
         'terms_accepted_at',
+        'google_id',
     ];
 
     /**
@@ -49,7 +50,7 @@ class User extends Authenticatable
     ];
     public function gifts()
     {
-        return $this->hasMany(Gift::class, 'sender_id');
+        return $this->hasMany(Gift::class , 'sender_id');
     }
 
     public function transactions()

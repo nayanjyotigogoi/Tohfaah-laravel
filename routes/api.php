@@ -82,6 +82,12 @@ Route::get(
     '/premium-gifts/view/{token}',
     [PremiumGiftController::class, 'viewGift']
 );
+// 🔥 Add teaser-check here (PUBLIC)
+Route::get(
+    '/premium-gifts/teaser-check/{token}',
+    [PremiumGiftController::class, 'teaserCheck']
+);
+
 
 // Verify secret answer
 Route::post(
@@ -111,5 +117,6 @@ Route::prefix('premium-gifts')
         Route::post('/{id}/apply-coupon', [PremiumGiftController::class, 'applyCoupon']);
 
         Route::post('/{id}/publish', [PremiumGiftController::class, 'publishGift']);
+        
     });
 

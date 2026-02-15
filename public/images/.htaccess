@@ -1,0 +1,18 @@
+# Deny access to php files in the images directory
+<Files "*.php">
+    Deny from all
+</Files>
+
+# Disable PHP execution in this directory
+<IfModule mod_php8.c>
+    php_flag engine off
+</IfModule>
+<IfModule mod_php7.c>
+    php_flag engine off
+</IfModule>
+<IfModule mod_php5.c>
+    php_flag engine off
+</IfModule>
+
+# Force download for non-image files if MIME detection fails (optional security)
+Options -Indexes

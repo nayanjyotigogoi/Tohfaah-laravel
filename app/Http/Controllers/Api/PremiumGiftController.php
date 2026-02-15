@@ -584,5 +584,27 @@ class PremiumGiftController extends Controller
         ]);
     }
 
+    /*
+|--------------------------------------------------------------------------
+| TEASER CHECK (ONLY VERIFY PUBLISHED EXISTS)
+|--------------------------------------------------------------------------
+*/
+public function teaserCheck($token)
+{
+    $gift = Gift::where('share_token', $token)
+        ->where('status', 'published')
+        ->first();
+
+    if (!$gift) {
+        return response()->json([
+            'exists' => false
+        ], 404);
+    }
+
+    return response()->json([
+        'exists' => true
+    ]);
+}
+
 
 }

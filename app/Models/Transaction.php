@@ -17,7 +17,16 @@ class Transaction extends Model
         'currency',
         'stripe_payment_id',
         'status',
+        'gift_id',
+        'razorpay_payment_id',
+        'razorpay_order_id',
+        'razorpay_signature',
     ];
+
+    public function gift()
+    {
+        return $this->belongsTo(Gift::class);
+    }
 
     public function user()
     {

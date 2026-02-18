@@ -64,7 +64,7 @@ Route::get(
 // 🔥 Add teaser-check here (PUBLIC)
 Route::get(
     '/premium-gifts/teaser-check/{token}',
-    [PremiumGiftController::class, 'teaserCheck']
+[PremiumGiftController::class , 'teaserCheck']
 );
 
 
@@ -91,7 +91,11 @@ Route::prefix('premium-gifts')
 
         Route::post('/{id}/apply-coupon', [PremiumGiftController::class , 'applyCoupon']);
 
-        Route::post('/{id}/publish', [PremiumGiftController::class, 'publishGift']);
-        
+        Route::post('/{id}/publish', [PremiumGiftController::class , 'publishGift']);
+
+        // Razorpay Routes
+        Route::post('/{id}/create-order', [PremiumGiftController::class , 'createOrder']);
+        Route::post('/{id}/verify-payment', [PremiumGiftController::class , 'verifyPayment']);
+
 
     });

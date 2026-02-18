@@ -8,9 +8,11 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\File;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Str;
+use Razorpay\Api\Api;
 use App\Http\Controllers\Controller;
 use Exception;
 
@@ -584,27 +586,123 @@ class PremiumGiftController extends Controller
         ]);
     }
 
-    /*
-|--------------------------------------------------------------------------
-| TEASER CHECK (ONLY VERIFY PUBLISHED EXISTS)
-|--------------------------------------------------------------------------
-*/
-public function teaserCheck($token)
-{
-    $gift = Gift::where('share_token', $token)
-        ->where('status', 'published')
-        ->first();
+    /*     |--------------------------------------------------------------------------     | TEASER CHECK (ONLY VERIFY PUBLISHED EXISTS)     |--------------------------------------------------------------------------     */public function teaserCheck($token)
+    {
+        $gift = Gift::where('share_token', $token)
+            ->where('status', 'published')
+            ->first();
 
-    if (!$gift) {
+        if (!$gift) {
+            return response()->json([
+                'exists' => false
+            ], 404);
+        }
+
         return response()->json([
-            'exists' => false
-        ], 404);
+            'exists' => true
+        ]);
     }
 
-    return response()->json([
-        'exists' => true
-    ]);
-}
+    /*
+     |--------------------------------------------------------------------------
+     | 8️⃣ RAZORPAY PAYMENT
+     |--------------------------------------------------------------------------
+     */
+
+    public function createOrder($id)
+    {
+        Log::info('[GIFT:PAYMENT] Create Order Attempt', ['gift_id' => $id]);
+
+        try {
+            $gift = Gift::where('id', $id)
+                ->where('sender_id', Auth::id())
+                ->where('status', 'draft')
+                ->firstOrFail();
+
+            $api = new \Razorpay\Api\Api(env('RAZORPAY_KEY_ID'), env('RAZORPAY_KEY_SECRET'));
+
+            // Price from config
+            $priceConfig = config('prices.valentine_premium');
+            $amount = $priceConfig['amount'] * 100; // Amount in paise
+
+            $orderData = [
+                'receipt' => (string)$gift->id,
+                'amount' => $amount,
+                'currency' => $priceConfig['currency'],
+                'notes' => [
+                    'gift_id' => $gift->id,
+                    'type' => 'valentine_premium'
+                ]
+            ];
+
+            $razorpayOrder = $api->order->create($orderData);
+
+            Log::info('[GIFT:PAYMENT] Order Created', [
+                'gift_id' => $gift->id,
+                'order_id' => $razorpayOrder['id']
+            ]);
+
+            return response()->json([
+                'success' => true,
+                'order_id' => $razorpayOrder['id'],
+                'amount' => $amount,
+                'currency' => 'INR',
+                'key_id' => env('RAZORPAY_KEY_ID'),
+                'contact' => Auth::user()->email // Pre-fill email if possible
+            ]);
+
+        }
+        catch (Exception $e) {
+            Log::error('[GIFT:PAYMENT] Order Creation Failed', ['error' => $e->getMessage()]);
+            return response()->json(['success' => false, 'message' => $e->getMessage()], 500);
+        }
+    }
+
+    public function verifyPayment(Request $request, $id)
+    {
+        Log::info('[GIFT:PAYMENT] Verification Attempt', ['gift_id' => $id]);
+
+        try {
+            $request->validate([
+                'razorpay_payment_id' => 'required|string',
+                'razorpay_order_id' => 'required|string',
+                'razorpay_signature' => 'required|string',
+            ]);
+
+            $gift = Gift::where('id', $id)
+                ->where('sender_id', Auth::id())
+                ->firstOrFail();
+
+            $api = new \Razorpay\Api\Api(env('RAZORPAY_KEY_ID'), env('RAZORPAY_KEY_SECRET'));
+
+            $attributes = [
+                'razorpay_order_id' => $request->razorpay_order_id,
+                'razorpay_payment_id' => $request->razorpay_payment_id,
+                'razorpay_signature' => $request->razorpay_signature
+            ];
+
+            $api->utility->verifyPaymentSignature($attributes);
+
+            // If signature verification is successful, update the gift
+            $gift->payment_status = 'paid';
+            $gift->amount = config('prices.valentine_premium.amount');
+            $gift->save();
+
+            Log::info('[GIFT:PAYMENT] Payment Verified', ['gift_id' => $gift->id]);
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Payment successful! Gift is ready to publish.',
+                'gift' => $gift,
+                'payment_status' => 'paid'
+            ]);
+
+        }
+        catch (Exception $e) {
+            Log::error('[GIFT:PAYMENT] Verification Failed', ['error' => $e->getMessage()]);
+            return response()->json(['success' => false, 'message' => 'Payment verification failed.'], 400);
+        }
+    }
 
 
 }

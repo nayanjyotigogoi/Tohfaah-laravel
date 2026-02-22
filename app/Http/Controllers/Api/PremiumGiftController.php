@@ -637,6 +637,19 @@ class PremiumGiftController extends Controller
 
             $razorpayOrder = $api->order->create($orderData);
 
+            // Create Transaction Record
+            \App\Models\Transaction::create([
+                'id' => Str::uuid(),
+                'user_id' => Auth::id(),
+                'gift_id' => $gift->id,
+                'package_id' => 'valentine_premium',
+                'amount_cents' => $amount, // stored in smallest unit
+                'currency' => $priceConfig['currency'],
+                'razorpay_order_id' => $razorpayOrder['id'],
+                'status' => 'created',
+                'credits_purchased' => 0 // Not applicable
+            ]);
+
             Log::info('[GIFT:PAYMENT] Order Created', [
                 'gift_id' => $gift->id,
                 'order_id' => $razorpayOrder['id']
@@ -682,6 +695,16 @@ class PremiumGiftController extends Controller
             ];
 
             $api->utility->verifyPaymentSignature($attributes);
+
+            // Update Transaction Record
+            $transaction = \App\Models\Transaction::where('razorpay_order_id', $request->razorpay_order_id)->first();
+            if ($transaction) {
+                $transaction->update([
+                    'razorpay_payment_id' => $request->razorpay_payment_id,
+                    'razorpay_signature' => $request->razorpay_signature,
+                    'status' => 'paid'
+                ]);
+            }
 
             // If signature verification is successful, update the gift
             $gift->payment_status = 'paid';

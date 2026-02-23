@@ -49,13 +49,44 @@ class UserDashboardController extends Controller
             'statuses' => $premiumGifts->pluck('status')->unique()->values(),
         ]);
 
+        /* ------------------ MEMORY MAPS ------------------ */
+
+        /* ------------------ MEMORY MAPS ------------------ */
+
+$memoryMaps = DB::table('memory_maps as mm')
+    ->leftJoin('memory_map_participants as mmp', function ($join) use ($userId) {
+        $join->on('mm.id', '=', 'mmp.memory_map_id')
+             ->where('mmp.user_id', '=', $userId);
+    })
+    ->where(function ($query) use ($userId) {
+        $query->where('mm.owner_id', $userId)
+              ->orWhereNotNull('mmp.user_id');
+    })
+    ->select('mm.*')
+    ->distinct()
+    ->orderByDesc('mm.updated_at')
+    ->get();
+
+Log::info('DASHBOARD[MM]: Memory maps fetched', [
+    'count' => $memoryMaps->count(),
+]);
+
+
+
+        Log::info('DASHBOARD[MM]: Memory maps fetched', [
+            'count' => $memoryMaps->count(),
+        ]);
+
+
         /* ------------------ COUNTS ------------------ */
 
         $stats = [
             'free_gifts' => $freeGifts->count(),
             'premium_live' => $premiumGifts->where('status', 'published')->count(),
             'premium_drafts' => $premiumGifts->where('status', 'draft')->count(),
+            'memory_maps' => $memoryMaps->count(), // ADD THIS
         ];
+
 
         Log::info('DASHBOARD[3]: Stats computed', $stats);
 
@@ -84,6 +115,44 @@ class UserDashboardController extends Controller
                 : null,
         ]);
 
+$memoryMapped = $memoryMaps->map(function ($map) use ($frontend, $userId) {
+
+    $isOwner = $map->owner_id == $userId;
+
+    $participantRole = DB::table('memory_map_participants')
+        ->where('memory_map_id', $map->id)
+        ->where('user_id', $userId)
+        ->value('role');
+
+    $participantsCount = DB::table('memory_map_participants')
+        ->where('memory_map_id', $map->id)
+        ->whereIn('status', ['invited', 'active'])
+        ->count();
+
+    return [
+        'id' => $map->id,
+        'title' => $map->title ?? 'Untitled Map',
+        'description' => $map->description,
+        'status' => $map->status,
+        'payment_status' => $map->payment_status,
+        'max_participants' => $map->max_participants,
+        'participants_count' => $participantsCount,
+        'is_owner' => $isOwner,
+        'role' => $isOwner ? 'owner' : $participantRole,
+        'has_password' => (bool) $map->has_password,
+        'published_at' => $map->published_at,
+        'date' => Carbon::parse($map->updated_at)->format('M d, Y'),
+        'share_token' => $map->share_token,
+        'link' => $map->status === 'active'
+            ? "{$frontend}/memory-map/{$map->share_token}"
+            : null,
+    ];
+});
+
+
+
+
+
         $recent = collect()
             ->merge($freeMapped->map(fn ($g) => $g + ['category' => 'free']))
             ->merge($premiumMapped->map(fn ($g) => $g + ['category' => 'premium']))
@@ -100,7 +169,9 @@ class UserDashboardController extends Controller
             'free' => $freeMapped,
             'paid' => $premiumMapped->where('status', 'published')->values(),
             'drafts' => $premiumMapped->where('status', 'draft')->values(),
+            'memory_maps' => $memoryMapped->values(), // ADD THIS
             'recent_activity' => $recent,
         ]);
+
     }
 }

@@ -11,6 +11,7 @@ use App\Http\Controllers\Auth\LogoutController;
 use App\Http\Controllers\PasswordResetController;
 use App\Http\Controllers\Api\FreeGiftController;
 use App\Http\Controllers\Api\PremiumGiftController;
+use App\Http\Controllers\Api\MemoryMapController;
 use App\Http\Controllers\Api\UserDashboardController;
 
 /* |-------------------------------------------------------------------------- | AUTH CHECK (TOKEN BASED) |-------------------------------------------------------------------------- */
@@ -73,6 +74,26 @@ Route::post(
     '/premium-gifts/{token}/verify-secret',
 [PremiumGiftController::class , 'verifyAndUnlock']
 );
+/* |--------------------------------------------------------------------------
+| MEMORY MAPS
+|--------------------------------------------------------------------------
+*/
+
+/* --------------------------------------------------
+| Public Routes
+|-------------------------------------------------- */
+
+// View published memory map (gated inside controller)
+Route::get(
+    '/memory-maps/view/{token}',
+    [MemoryMapController::class, 'viewMap']
+);
+
+// Verify password
+Route::post(
+    '/memory-maps/{token}/verify-password',
+    [MemoryMapController::class, 'verifyPassword']
+);
 
 /* |-------------------------------------------------- | Authenticated Routes |-------------------------------------------------- */
 Route::prefix('premium-gifts')
@@ -93,5 +114,25 @@ Route::prefix('premium-gifts')
 
         Route::post('/{id}/publish', [PremiumGiftController::class, 'publishGift']);
         
-
     });
+/* --------------------------------------------------
+| Authenticated Routes
+|-------------------------------------------------- */
+
+Route::prefix('memory-maps')
+    ->middleware('auth:sanctum')
+    ->group(function () {
+
+        Route::post('/draft', [MemoryMapController::class, 'createDraft']);
+        Route::get('/draft/{id}', [MemoryMapController::class, 'getDraft']);
+        Route::get('/manage/{id}', [MemoryMapController::class, 'getManageMap']);
+
+
+        Route::post('/{id}/apply-coupon', [MemoryMapController::class, 'applyCoupon']);
+        Route::post('/{id}/publish', [MemoryMapController::class, 'publishMap']);
+
+        Route::post('/{id}/invite', [MemoryMapController::class, 'inviteParticipants']);
+        Route::post('/{id}/memories', [MemoryMapController::class, 'addMemory']);
+        Route::delete('/memories/{memoryId}', [MemoryMapController::class, 'deleteMemory']);
+    });
+

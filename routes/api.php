@@ -142,6 +142,10 @@ Route::prefix('memory-maps')
         Route::post('/{id}/apply-coupon', [MemoryMapController::class, 'applyCoupon']);
         Route::post('/{id}/publish', [MemoryMapController::class, 'publishMap']);
 
+        // Razorpay Routes
+        Route::post('/{id}/create-order', [MemoryMapController::class, 'createOrder']);
+        Route::post('/{id}/verify-payment', [MemoryMapController::class, 'verifyPayment']);
+
         Route::post('/{id}/invite', [MemoryMapController::class, 'inviteParticipants']);
         Route::post('/{id}/memories', [MemoryMapController::class, 'addMemory']);
         Route::delete('/memories/{memoryId}', [MemoryMapController::class, 'deleteMemory']);

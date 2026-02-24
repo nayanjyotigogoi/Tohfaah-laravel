@@ -19,6 +19,8 @@ use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
 use Intervention\Image\ImageManager;
 use Intervention\Image\Drivers\Gd\Driver;
+use Razorpay\Api\Api;
+use App\Models\Transaction;
 use Exception;
 
 class MemoryMapController extends Controller
@@ -572,5 +574,127 @@ class MemoryMapController extends Controller
         $memory->delete();
 
         return response()->json(['success' => true]);
+    }
+
+    /*
+    |--------------------------------------------------------------------------
+    | 9️⃣ RAZORPAY PAYMENT
+    |--------------------------------------------------------------------------
+    */
+
+    public function createOrder($id)
+    {
+        Log::info('[MEMORY_MAP:PAYMENT] Create Order Attempt', ['memory_map_id' => $id]);
+
+        try {
+            $map = MemoryMap::where('id', $id)
+                ->where('owner_id', Auth::id())
+                ->where('status', 'draft')
+                ->firstOrFail();
+
+            $api = new \Razorpay\Api\Api(env('RAZORPAY_KEY_ID'), env('RAZORPAY_KEY_SECRET'));
+
+            // Price from config
+            $priceConfig = config('prices.memory_map');
+            $amount = $priceConfig['amount'] * 100; // Amount in paise
+
+            $orderData = [
+                'receipt' => (string) $map->id,
+                'amount' => $amount,
+                'currency' => $priceConfig['currency'],
+                'notes' => [
+                    'memory_map_id' => $map->id,
+                    'type' => 'memory_map'
+                ]
+            ];
+
+            $razorpayOrder = $api->order->create($orderData);
+
+            // Create Transaction Record
+            \App\Models\Transaction::create([
+                'id' => Str::uuid(),
+                'user_id' => Auth::id(),
+                'memory_map_id' => $map->id,
+                'package_id' => 'memory_map',
+                'amount_cents' => $amount, // stored in smallest unit
+                'currency' => $priceConfig['currency'],
+                'razorpay_order_id' => $razorpayOrder['id'],
+                'status' => 'created',
+                'credits_purchased' => 0 // Not applicable
+            ]);
+
+            Log::info('[MEMORY_MAP:PAYMENT] Order Created', [
+                'memory_map_id' => $map->id,
+                'order_id' => $razorpayOrder['id']
+            ]);
+
+            return response()->json([
+                'success' => true,
+                'order_id' => $razorpayOrder['id'],
+                'amount' => $amount,
+                'currency' => 'INR',
+                'key_id' => env('RAZORPAY_KEY_ID'),
+                'contact' => Auth::user()->email // Pre-fill email if possible
+            ]);
+
+        } catch (Exception $e) {
+            Log::error('[MEMORY_MAP:PAYMENT] Order Creation Failed', ['error' => $e->getMessage()]);
+            return response()->json(['success' => false, 'message' => $e->getMessage()], 500);
+        }
+    }
+
+    public function verifyPayment(Request $request, $id)
+    {
+        Log::info('[MEMORY_MAP:PAYMENT] Verification Attempt', ['memory_map_id' => $id]);
+
+        try {
+            $request->validate([
+                'razorpay_payment_id' => 'required|string',
+                'razorpay_order_id' => 'required|string',
+                'razorpay_signature' => 'required|string',
+            ]);
+
+            $map = MemoryMap::where('id', $id)
+                ->where('owner_id', Auth::id())
+                ->firstOrFail();
+
+            $api = new \Razorpay\Api\Api(env('RAZORPAY_KEY_ID'), env('RAZORPAY_KEY_SECRET'));
+
+            $attributes = [
+                'razorpay_order_id' => $request->razorpay_order_id,
+                'razorpay_payment_id' => $request->razorpay_payment_id,
+                'razorpay_signature' => $request->razorpay_signature
+            ];
+
+            $api->utility->verifyPaymentSignature($attributes);
+
+            // Update Transaction Record
+            $transaction = \App\Models\Transaction::where('razorpay_order_id', $request->razorpay_order_id)->first();
+            if ($transaction) {
+                $transaction->update([
+                    'razorpay_payment_id' => $request->razorpay_payment_id,
+                    'razorpay_signature' => $request->razorpay_signature,
+                    'status' => 'paid'
+                ]);
+            }
+
+            // If signature verification is successful, update the map
+            $map->payment_status = 'paid';
+            $map->amount = config('prices.memory_map.amount');
+            $map->save();
+
+            Log::info('[MEMORY_MAP:PAYMENT] Payment Verified', ['memory_map_id' => $map->id]);
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Payment successful! Map is ready to publish.',
+                'memory_map' => $map,
+                'payment_status' => 'paid'
+            ]);
+
+        } catch (Exception $e) {
+            Log::error('[MEMORY_MAP:PAYMENT] Verification Failed', ['error' => $e->getMessage()]);
+            return response()->json(['success' => false, 'message' => 'Payment verification failed.'], 400);
+        }
     }
 }

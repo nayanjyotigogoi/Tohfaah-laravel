@@ -17,6 +17,8 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
+use Intervention\Image\ImageManager;
+use Intervention\Image\Drivers\Gd\Driver;
 use Exception;
 
 class MemoryMapController extends Controller
@@ -74,28 +76,28 @@ class MemoryMapController extends Controller
             'role' => 'owner',
             'status' => 'active',
         ]);
-        
+
         return response()->json([
             'success' => true,
             'memory_map_id' => $map->id
         ]);
     }
 
-public function getDraft($id)
-{
-    $map = MemoryMap::where('id', $id)
-        ->where('owner_id', Auth::id())
-        ->where('status', 'draft')
-        ->firstOrFail();
+    public function getDraft($id)
+    {
+        $map = MemoryMap::where('id', $id)
+            ->where('owner_id', Auth::id())
+            ->where('status', 'draft')
+            ->firstOrFail();
 
-    return response()->json([
-        'success' => true,
-        'memory_map' => $map->load([
-            'participants.user',
-            'memories.user'
-        ])
-    ]);
-}
+        return response()->json([
+            'success' => true,
+            'memory_map' => $map->load([
+                'participants.user',
+                'memories.user'
+            ])
+        ]);
+    }
 
     /*
     |--------------------------------------------------------------------------
@@ -246,6 +248,16 @@ public function getDraft($id)
                 'memories.user'
             ]);
 
+            // Transform photo_url to proxy URL for secure access
+            $map->memories->each(function ($memory) use ($token) {
+                if ($memory->photo_url && !str_starts_with($memory->photo_url, 'http')) {
+                    $memory->photo_url = route('memory-maps.image', [
+                        'token' => $token,
+                        'filename' => basename($memory->photo_url),
+                    ]);
+                }
+            });
+
             return response()->json([
                 'locked' => false,
                 'memory_map' => $map
@@ -276,7 +288,7 @@ public function getDraft($id)
             ->firstOrFail();
 
         if (!Hash::check($request->password, $map->password_hash)) {
-            return response()->json([   
+            return response()->json([
                 'success' => false,
                 'message' => 'Incorrect password.'
             ], 403);
@@ -303,53 +315,53 @@ public function getDraft($id)
     */
 
 
-public function inviteParticipants(Request $request, $id)
-{
-    $map = MemoryMap::where('id', $id)
-        ->where('owner_id', Auth::id())
-        ->firstOrFail();
+    public function inviteParticipants(Request $request, $id)
+    {
+        $map = MemoryMap::where('id', $id)
+            ->where('owner_id', Auth::id())
+            ->firstOrFail();
 
-    $request->validate([
-        'emails' => 'required|array',
-        'emails.*' => 'email'
-    ]);
+        $request->validate([
+            'emails' => 'required|array',
+            'emails.*' => 'email'
+        ]);
 
-    $inviter = Auth::user();
+        $inviter = Auth::user();
 
-    foreach ($request->emails as $email) {
+        foreach ($request->emails as $email) {
 
-        // 🔒 Check seat limit
-        if (!$map->hasAvailableSeats()) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Seat limit reached.'
-            ], 403);
+            // 🔒 Check seat limit
+            if (!$map->hasAvailableSeats()) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Seat limit reached.'
+                ], 403);
+            }
+
+            // 🚫 Avoid duplicate invites
+            $participant = MemoryMapParticipant::firstOrCreate(
+                [
+                    'memory_map_id' => $map->id,
+                    'email' => $email,
+                ],
+                [
+                    'role' => 'participant',
+                    'status' => 'invited',
+                    'invited_by' => $inviter->id,
+                ]
+            );
+
+            // ✉️ Send email
+            Mail::to($email)->send(
+                new MemoryMapInviteMail($map, $inviter)
+            );
         }
 
-        // 🚫 Avoid duplicate invites
-        $participant = MemoryMapParticipant::firstOrCreate(
-            [
-                'memory_map_id' => $map->id,
-                'email' => $email,
-            ],
-            [
-                'role' => 'participant',
-                'status' => 'invited',
-                'invited_by' => $inviter->id,
-            ]
-        );
-
-        // ✉️ Send email
-        Mail::to($email)->send(
-            new MemoryMapInviteMail($map, $inviter)
-        );
+        return response()->json([
+            'success' => true,
+            'message' => 'Invites sent successfully'
+        ]);
     }
-
-    return response()->json([
-        'success' => true,
-        'message' => 'Invites sent successfully'
-    ]);
-}
 
     /*
     |--------------------------------------------------------------------------
@@ -393,21 +405,43 @@ public function inviteParticipants(Request $request, $id)
 
         $photoPath = null;
 
-        // 🔥 Handle File Upload
+        // 🔥 Handle File Upload with EXIF stripping & resize
         if ($request->hasFile('photo')) {
 
             $file = $request->file('photo');
-
             $folder = public_path('images/memory/' . $map->id);
 
             if (!file_exists($folder)) {
                 mkdir($folder, 0755, true);
             }
 
-            $filename = uniqid() . '.' . $file->getClientOriginalExtension();
+            $filename = Str::uuid() . '.' . $file->getClientOriginalExtension();
+            $destinationPath = $folder . '/' . $filename;
 
-            $file->move($folder, $filename);
+            try {
+                // Use Intervention Image to strip GPS/EXIF and resize
+                $manager = new ImageManager(new Driver());
+                $image = $manager->read($file);
 
+                // Resize if larger than 1080px wide
+                if ($image->width() > 1080) {
+                    $image->scale(width: 1080);
+                }
+
+                // Save (Intervention strips metadata automatically on save)
+                $image->save($destinationPath);
+
+                Log::info('[MEMORY:IMAGE] Processed & saved', [
+                    'filename' => $filename,
+                    'width' => $image->width(),
+                ]);
+
+            } catch (Exception $e) {
+                Log::error('[MEMORY:IMAGE] Processing failed', ['error' => $e->getMessage()]);
+                return response()->json(['message' => 'Image processing failed'], 500);
+            }
+
+            // Store relative path (used by proxy)
             $photoPath = 'images/memory/' . $map->id . '/' . $filename;
         }
 
@@ -437,9 +471,18 @@ public function inviteParticipants(Request $request, $id)
 
         $memory->load('user');
 
+        // Build proxy URL if image was uploaded
+        $memoryData = $memory->toArray();
+        if ($memory->photo_url) {
+            $memoryData['photo_url'] = route('memory-maps.image', [
+                'token' => $map->share_token,
+                'filename' => basename($memory->photo_url),
+            ]);
+        }
+
         return response()->json([
             'success' => true,
-            'memory' => $memory
+            'memory' => $memoryData
         ]);
     }
 
@@ -450,13 +493,54 @@ public function inviteParticipants(Request $request, $id)
             ->where('owner_id', Auth::id())
             ->firstOrFail();
 
+        $map->load(['participants.user', 'memories.user']);
+
+        // Transform photo_url to direct asset URL (owner only, no proxy needed)
+        $map->memories->each(function ($memory) {
+            if ($memory->photo_url && !str_starts_with($memory->photo_url, 'http')) {
+                $memory->photo_url = asset($memory->photo_url);
+            }
+        });
+
         return response()->json([
             'success' => true,
-            'memory_map' => $map->load([
-                'participants.user',
-                'memories.user'
-            ])
+            'memory_map' => $map
         ]);
+    }
+
+    /**
+     * SERVE MEMORY IMAGE (PROXY)
+     * GET /memory-maps/image/{token}/{filename}
+     */
+    public function serveMemoryImage(string $token, string $filename)
+    {
+        // 1. Find active map by share token
+        $map = MemoryMap::where('share_token', $token)
+            ->where('status', 'active')
+            ->first();
+
+        if (!$map) {
+            abort(404);
+        }
+
+        // 2. Validate filename belongs to this map
+        $isValidFile = MapMemory::where('memory_map_id', $map->id)
+            ->whereRaw("photo_url LIKE ?", ['%' . $filename])
+            ->exists();
+
+        if (!$isValidFile) {
+            abort(403);
+        }
+
+        // 3. Resolve full path on disk
+        $path = public_path('images/memory/' . $map->id . '/' . $filename);
+
+        if (!file_exists($path)) {
+            abort(404);
+        }
+
+        // 4. Serve file
+        return response()->file($path);
     }
     /*
     |--------------------------------------------------------------------------
@@ -470,8 +554,10 @@ public function inviteParticipants(Request $request, $id)
 
         $user = Auth::user();
 
-        if ($memory->user_id !== $user->id &&
-            $map->owner_id !== $user->id) {
+        if (
+            $memory->user_id !== $user->id &&
+            $map->owner_id !== $user->id
+        ) {
             return response()->json(['message' => 'Forbidden'], 403);
         }
 

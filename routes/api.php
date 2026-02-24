@@ -22,35 +22,40 @@ Route::middleware('auth:sanctum')->get('/user', function (Request $request) {
 /* |-------------------------------------------------------------------------- | AUTH ROUTES |-------------------------------------------------------------------------- */
 Route::prefix('auth')->group(function () {
 
-    Route::post('/register', [AuthController::class , 'register']);
-    Route::post('/login', [LoginController::class , 'login']);
-    Route::post('/forgot-password', [PasswordResetController::class , 'sendResetLink']);
-    Route::post('/reset-password', [PasswordResetController::class , 'reset']);
+    Route::post('/register', [AuthController::class, 'register']);
+    Route::post('/login', [LoginController::class, 'login']);
+    Route::post('/forgot-password', [PasswordResetController::class, 'sendResetLink']);
+    Route::post('/reset-password', [PasswordResetController::class, 'reset']);
 
     // Google Auth
-    Route::get('/google', [\App\Http\Controllers\Api\SocialAuthController::class , 'redirectToGoogle']);
-    Route::get('/google/callback', [\App\Http\Controllers\Api\SocialAuthController::class , 'handleGoogleCallback']);
+    Route::get('/google', [\App\Http\Controllers\Api\SocialAuthController::class, 'redirectToGoogle']);
+    Route::get('/google/callback', [\App\Http\Controllers\Api\SocialAuthController::class, 'handleGoogleCallback']);
 
-    Route::middleware('auth:sanctum')->group(function () {
-            Route::post('/logout', [LogoutController::class , 'logout']);
+    Route::middleware('auth:sanctum')->group(
+        function () {
+            Route::post('/logout', [LogoutController::class, 'logout']);
         }
-        );
-    });
+    );
+});
 
 /* |-------------------------------------------------------------------------- | FREE GIFTS (PUBLIC + OPTIONAL AUTH) |-------------------------------------------------------------------------- | - Guests can create gifts | - Logged-in users get sender_id stored */
-Route::post('/free-gifts', [FreeGiftController::class , 'store'])
+Route::post('/free-gifts', [FreeGiftController::class, 'store'])
     ->middleware('optional.sanctum');
 
-Route::get('/free-gifts/{token}', [FreeGiftController::class , 'show']);
-Route::get('/free-gifts/image/{token}', [FreeGiftController::class , 'serveImage'])->name('free-gifts.image');
+Route::get('/free-gifts/{token}', [FreeGiftController::class, 'show']);
+Route::get('/free-gifts/image/{token}', [FreeGiftController::class, 'serveImage'])->name('free-gifts.image');
 
 // Premium Gifts Proxy
-Route::get('/premium-gifts/image/{token}/{filename}', [PremiumGiftController::class , 'serveImage'])->name('premium-gifts.image');
+Route::get('/premium-gifts/image/{token}/{filename}', [PremiumGiftController::class, 'serveImage'])->name('premium-gifts.image');
+
+// Memory Map: public view + proxy
+Route::get('/memory-maps/view/{token}', [MemoryMapController::class, 'viewMap']);
+Route::get('/memory-maps/image/{token}/{filename}', [MemoryMapController::class, 'serveMemoryImage'])->name('memory-maps.image');
 
 /* |-------------------------------------------------------------------------- | DASHBOARD (AUTH REQUIRED) |-------------------------------------------------------------------------- */
 Route::middleware('auth:sanctum')->get(
     '/dashboard-data',
-[UserDashboardController::class , 'index']
+    [UserDashboardController::class, 'index']
 );
 
 /* |-------------------------------------------------------------------------- | PREMIUM GIFTS |-------------------------------------------------------------------------- */
@@ -60,19 +65,19 @@ Route::middleware('auth:sanctum')->get(
 // View published gift
 Route::get(
     '/premium-gifts/view/{token}',
-[PremiumGiftController::class , 'viewGift']
+    [PremiumGiftController::class, 'viewGift']
 );
 // 🔥 Add teaser-check here (PUBLIC)
 Route::get(
     '/premium-gifts/teaser-check/{token}',
-[PremiumGiftController::class , 'teaserCheck']
+    [PremiumGiftController::class, 'teaserCheck']
 );
 
 
 // Verify secret answer
 Route::post(
     '/premium-gifts/{token}/verify-secret',
-[PremiumGiftController::class , 'verifyAndUnlock']
+    [PremiumGiftController::class, 'verifyAndUnlock']
 );
 /* |--------------------------------------------------------------------------
 | MEMORY MAPS
@@ -100,29 +105,29 @@ Route::prefix('premium-gifts')
     ->middleware('auth:sanctum')
     ->group(function () {
 
-        Route::post('/draft', [PremiumGiftController::class , 'createDraft']);
+        Route::post('/draft', [PremiumGiftController::class, 'createDraft']);
 
-        Route::put('/draft/{id}', [PremiumGiftController::class , 'updateDraft']);
+        Route::put('/draft/{id}', [PremiumGiftController::class, 'updateDraft']);
 
-        Route::delete('/draft/{id}', [PremiumGiftController::class , 'deleteDraft']);
+        Route::delete('/draft/{id}', [PremiumGiftController::class, 'deleteDraft']);
 
-        Route::get('/preview/{token}', [PremiumGiftController::class , 'previewDraft']);
+        Route::get('/preview/{token}', [PremiumGiftController::class, 'previewDraft']);
 
-        Route::post('/{id}/images', [PremiumGiftController::class , 'uploadImages']);
+        Route::post('/{id}/images', [PremiumGiftController::class, 'uploadImages']);
 
-        Route::post('/{id}/apply-coupon', [PremiumGiftController::class , 'applyCoupon']);
+        Route::post('/{id}/apply-coupon', [PremiumGiftController::class, 'applyCoupon']);
 
         Route::post('/{id}/publish', [PremiumGiftController::class, 'publishGift']);
-        
+
     });
 /* --------------------------------------------------
 | Authenticated Routes
 |-------------------------------------------------- */
-        Route::post('/{id}/publish', [PremiumGiftController::class , 'publishGift']);
+Route::post('/{id}/publish', [PremiumGiftController::class, 'publishGift']);
 
-        // Razorpay Routes
-        Route::post('/{id}/create-order', [PremiumGiftController::class , 'createOrder']);
-        Route::post('/{id}/verify-payment', [PremiumGiftController::class , 'verifyPayment']);
+// Razorpay Routes
+Route::post('/{id}/create-order', [PremiumGiftController::class, 'createOrder']);
+Route::post('/{id}/verify-payment', [PremiumGiftController::class, 'verifyPayment']);
 
 
 Route::prefix('memory-maps')

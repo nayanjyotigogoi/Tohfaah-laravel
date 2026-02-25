@@ -18,6 +18,7 @@ class Transaction extends Model
         'stripe_payment_id',
         'status',
         'gift_id',
+        'memory_map_id',
         'razorpay_payment_id',
         'razorpay_order_id',
         'razorpay_signature',
@@ -26,6 +27,11 @@ class Transaction extends Model
     public function gift()
     {
         return $this->belongsTo(Gift::class);
+    }
+
+    public function memoryMap()
+    {
+        return $this->belongsTo(MemoryMap::class);
     }
 
     public function user()

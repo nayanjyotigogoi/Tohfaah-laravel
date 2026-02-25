@@ -473,13 +473,19 @@ class MemoryMapController extends Controller
 
         $memory->load('user');
 
-        // Build proxy URL if image was uploaded
+        // Build URL depending on whether map is published or draft
         $memoryData = $memory->toArray();
         if ($memory->photo_url) {
-            $memoryData['photo_url'] = route('memory-maps.image', [
-                'token' => $map->share_token,
-                'filename' => basename($memory->photo_url),
-            ]);
+            if ($map->share_token) {
+                // If published, generate proxy URL
+                $memoryData['photo_url'] = route('memory-maps.image', [
+                    'token' => $map->share_token,
+                    'filename' => basename($memory->photo_url),
+                ]);
+            } else {
+                // If draft (no share_token), generate direct asset URL for the owner
+                $memoryData['photo_url'] = asset($memory->photo_url);
+            }
         }
 
         return response()->json([
